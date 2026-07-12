@@ -1,0 +1,36 @@
+<Project>
+
+  <!--
+    fux: cross-platform build shims for reusing the XmlNotepad engine off-Windows.
+
+    This file is NEW (upstream has no Directory.Build.targets), so it never conflicts
+    on `git merge master`. MSBuild imports Directory.Build.targets *after* each project's
+    own content, so a target defined here with the same name overrides the project's inline
+    one. We use that to replace Windows-only build steps with portable equivalents instead
+    of editing the upstream .csproj files.
+  -->
+
+  <!--
+    Model.csproj's inline <Target Name="PreBuild"> generates src/Model/ApiKey.cs with a
+    Windows `cmd` echo (`%VAR%` env syntax, plus `;`/`{`/`}` that /bin/sh rejects), which
+    fails on macOS/Linux. Override it with a cross-platform WriteLinesToFile that emits the
+    same one-line partial class. ApiKey.cs is .gitignored, so this stays local.
+    The analytics key is read from the XMLNOTEPAD_ANALYTICSKEY env var (empty by default;
+    we don't use analytics in fux anyway).
+  -->
+  <Target Name="PreBuild" BeforeTargets="PreBuildEvent" Condition="'$(MSBuildProjectName)' == 'Model'">
+    <WriteLinesToFile
+        File="$(MSBuildProjectDirectory)/ApiKey.cs"
+        Lines="namespace XmlNotepad { public partial class AppAnalytics { private const string ApiKey=&quot;$(XMLNOTEPAD_ANALYTICSKEY)&quot;%3B } }"
+        Overwrite="true" />
+    <!-- The SDK's default **/*.cs glob is evaluated before targets run. Depending on whether
+         ApiKey.cs existed at evaluation, it may or may not already be in @(Compile). Remove
+         every ApiKey.cs entry (matched by filename, so it catches any path form) then add
+         exactly one, so the file compiles exactly once. Before CoreCompile via PreBuildEvent. -->
+    <ItemGroup>
+      <Compile Remove="@(Compile)" Condition="'%(Filename)%(Extension)' == 'ApiKey.cs'" />
+      <Compile Include="$(MSBuildProjectDirectory)/ApiKey.cs" />
+    </ItemGroup>
+  </Target>
+
+</Project>

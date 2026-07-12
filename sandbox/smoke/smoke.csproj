@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    fux smoke test: a throwaway headless driver that proves the reused XmlNotepad `Model`
+    engine LOADS and VALIDATES XML on macOS/Linux (not just compiles). Lives outside src/
+    so it never touches the upstream tree. Will be superseded by the real src/Fux TUI.
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <AssemblyName>fux-smoke</AssemblyName>
+    <RootNamespace>Fux.Smoke</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../src/Model/Model.csproj" />
+  </ItemGroup>
+
+</Project>

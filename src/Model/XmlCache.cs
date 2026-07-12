@@ -645,7 +645,7 @@ namespace XmlNotepad
         {
             if (this._fileName != null && Location.IsFile && File.Exists(this._fileName))
             {
-                string dir = Path.GetDirectoryName(this._fileName) + "\\";
+                string dir = Path.GetDirectoryName(this._fileName);
                 this._watcher = new FileSystemWatcher(dir, "*.*");
                 this._watcher.Changed += new FileSystemEventHandler(watcher_Changed);
                 this._watcher.Renamed += new RenamedEventHandler(watcher_Renamed);
