@@ -32,6 +32,9 @@ namespace Fux.Smoke
         private static int Main(string[] args)
         {
             var file = args.Length > 0 ? args[0] : "src/UnitTests/emp.xml";
+            // Resolve relative -> absolute: the engine resolves a relative path against the
+            // parent of the working directory, so hand it a full path (same fix as Fux).
+            file = System.IO.Path.GetFullPath(file);
 
             Console.WriteLine("fux — headless engine smoke test");
             Console.WriteLine($"  runtime : .NET {Environment.Version}  ({RuntimeInformation.OSDescription.Trim()}, {RuntimeInformation.OSArchitecture})");

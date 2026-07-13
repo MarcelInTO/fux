@@ -1,9 +1,9 @@
 name: fux CI
 
-# Cross-platform build + headless smoke for the fux TUI and the reused XmlNotepad engine.
-# Scoped to the `fux` product branch (upstream's own workflows are master-only, so they
-# don't run here). Interactive TUI rendering is verified by a human per platform; this
-# workflow covers build + engine behavior (load, XSD-validate, tree render via --dump).
+# Cross-platform build + headless smoke for the fux TUI and the reused XmlNotepad engine,
+# and publish of a self-contained single-file binary per OS as a downloadable artifact.
+# Scoped to the `fux` product branch (upstream's own workflows are master-only). Interactive
+# TUI rendering is verified by a human per platform; this covers build + engine behavior.
 
 on:
   push:
@@ -25,7 +25,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ ubuntu-latest, windows-latest, macos-latest ]
+        include:
+          - os: ubuntu-latest
+            rid: linux-x64
+          - os: windows-latest
+            rid: win-x64
+          - os: macos-latest
+            rid: osx-arm64
     runs-on: ${{ matrix.os }}
 
     steps:
@@ -42,7 +48,6 @@ jobs:
         run: dotnet build src/Fux/Fux.csproj -c Release
 
       # --dump loads the file into the DOM and prints the tree; no TTY needed.
-      # Asserts the engine loads and the view-model renders on this OS.
       - name: Headless render smoke (Fux --dump)
         shell: bash
         run: |
@@ -51,8 +56,7 @@ jobs:
           echo "$out" | grep -q "<Employees>" || { echo "::error::--dump output missing <Employees>"; exit 1; }
           echo "$out" | grep -q "@id"          || { echo "::error::--dump output missing @id attribute"; exit 1; }
 
-      # Exercises the XSD validation path end to end (auto-loads emp.xsd via schemaLocation,
-      # drives XmlSchemaValidator over the DOM). Confirms the crown-jewel engine runs on this OS.
+      # Exercises the XSD validation path end to end (auto-loads emp.xsd via schemaLocation).
       - name: Engine validation smoke (valid doc -> 0 errors)
         shell: bash
         run: |
@@ -60,3 +64,19 @@ jobs:
           echo "$out"
           echo "$out" | grep -q "1 schema(s) associated" || { echo "::error::emp.xsd was not associated"; exit 1; }
           echo "$out" | grep -q "0 error(s)"              || { echo "::error::expected 0 validation errors on emp.xml"; exit 1; }
+
+      # Self-contained single-file binary (bundles the .NET runtime; no install needed to run).
+      - name: Publish single-file binary (${{ matrix.rid }})
+        run: >
+          dotnet publish src/Fux/Fux.csproj -c Release
+          -r ${{ matrix.rid }} --self-contained true
+          -p:PublishSingleFile=true -o publish
+
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: fux-${{ matrix.rid }}
+          path: |
+            publish/fux
+            publish/fux.exe
+          if-no-files-found: ignore
