@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    fux: the cross-platform terminal XML editor. A Terminal.Gui front end over the reused
+    XmlNotepad `Model` engine (XmlCache/DomLoader/Checker/SchemaCache/...).
+    Pinned to Terminal.Gui v1 (mature, stable widget API incl. TreeView<T>).
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <AssemblyName>fux</AssemblyName>
+    <RootNamespace>Fux</RootNamespace>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Terminal.Gui" Version="1.*" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../Model/Model.csproj" />
+  </ItemGroup>
+
+</Project>
