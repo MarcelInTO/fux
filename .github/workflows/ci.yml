@@ -1,0 +1,62 @@
+name: fux CI
+
+# Cross-platform build + headless smoke for the fux TUI and the reused XmlNotepad engine.
+# Scoped to the `fux` product branch (upstream's own workflows are master-only, so they
+# don't run here). Interactive TUI rendering is verified by a human per platform; this
+# workflow covers build + engine behavior (load, XSD-validate, tree render via --dump).
+
+on:
+  push:
+    branches: [ fux ]
+  pull_request:
+    branches: [ fux ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-smoke:
+    name: build & smoke (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ ubuntu-latest, windows-latest, macos-latest ]
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 8 SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      # Builds the reused Model engine (netstandard2.0) + the Fux TUI (net8.0).
+      - name: Build engine + TUI (Release)
+        run: dotnet build src/Fux/Fux.csproj -c Release
+
+      # --dump loads the file into the DOM and prints the tree; no TTY needed.
+      # Asserts the engine loads and the view-model renders on this OS.
+      - name: Headless render smoke (Fux --dump)
+        shell: bash
+        run: |
+          out=$(dotnet run --project src/Fux -c Release -- --dump src/UnitTests/emp.xml)
+          echo "$out"
+          echo "$out" | grep -q "<Employees>" || { echo "::error::--dump output missing <Employees>"; exit 1; }
+          echo "$out" | grep -q "@id"          || { echo "::error::--dump output missing @id attribute"; exit 1; }
+
+      # Exercises the XSD validation path end to end (auto-loads emp.xsd via schemaLocation,
+      # drives XmlSchemaValidator over the DOM). Confirms the crown-jewel engine runs on this OS.
+      - name: Engine validation smoke (valid doc -> 0 errors)
+        shell: bash
+        run: |
+          out=$(dotnet run --project sandbox/smoke -c Release -- src/UnitTests/emp.xml)
+          echo "$out"
+          echo "$out" | grep -q "1 schema(s) associated" || { echo "::error::emp.xsd was not associated"; exit 1; }
+          echo "$out" | grep -q "0 error(s)"              || { echo "::error::expected 0 validation errors on emp.xml"; exit 1; }
