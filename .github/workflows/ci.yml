@@ -65,6 +65,27 @@ jobs:
           echo "$out" | grep -q "1 schema(s) associated" || { echo "::error::emp.xsd was not associated"; exit 1; }
           echo "$out" | grep -q "0 error(s)"              || { echo "::error::expected 0 validation errors on emp.xml"; exit 1; }
 
+      # The error pane's data path, headless: --validate collects diagnostics and, for each,
+      # prints the tree node an Enter-jump would land on (FindNodeAt + MapToTree).
+      - name: Fux validation smoke (valid doc -> no issues)
+        shell: bash
+        run: |
+          out=$(dotnet run --project src/Fux -c Release -- --validate src/UnitTests/emp.xml)
+          echo "$out"
+          echo "$out" | grep -q "no issues" || { echo "::error::expected no issues on emp.xml"; exit 1; }
+
+      - name: Fux validation smoke (invalid doc -> errors + node jump)
+        shell: bash
+        run: |
+          set +e
+          out=$(dotnet run --project src/Fux -c Release -- --validate src/UnitTests/emp-invalid.xml)
+          code=$?
+          set -e
+          echo "$out"
+          [ "$code" -eq 1 ] || { echo "::error::--validate should exit 1 on an invalid doc (got $code)"; exit 1; }
+          echo "$out" | grep -q "MinInclusive constraint failed" || { echo "::error::missing expected Zip range error"; exit 1; }
+          echo "$out" | grep -q -- "-> <Zip>"                    || { echo "::error::error row did not map to the <Zip> node"; exit 1; }
+
       # Self-contained single-file binary (bundles the .NET runtime; no install needed to run).
       - name: Publish single-file binary (${{ matrix.rid }})
         run: >
