@@ -114,6 +114,7 @@ namespace Fux
             public IApplication App;
             public Runnable Top;
             public MenuBar Menu;
+            public StatusBar Status;
             public TreeView<XmlNode> Tree;
             public View ValueView;   // typed View: TextView is obsolete-flagged, see BuildUi
             public ListView ErrorList;
@@ -127,10 +128,13 @@ namespace Fux
             app.Init(null);
 
             // v2 has no Toplevel/Window split: a Runnable is a plain View that app.Run drives.
-            // Views without their own Scheme inherit from the superview, so setting the content
-            // scheme here themes everything we don't explicitly override.
+            // Views without their own Scheme inherit from the superview; ApplyTheme (below)
+            // sets the content scheme here, theming everything we don't explicitly override.
             var top = new Runnable();
-            top.SetScheme(Theme.Content);
+
+            // Captured by the menu/status toggle actions before it's assigned; by the time a
+            // keypress can fire them the Ui is built. (The Theme toggle needs the whole Ui.)
+            Ui ui = null;
 
             // F9 activates the menu bar, as in v1. Must be set via the static default BEFORE
             // construction: the MenuBar binds its activation key once in its constructor, and
@@ -141,6 +145,10 @@ namespace Fux
                 new MenuBarItem("_File", new View[]
                 {
                     new MenuItem("_Quit", "", () => app.RequestStop(top), Key.Q.WithCtrl),
+                }),
+                new MenuBarItem("_View", new View[]
+                {
+                    new MenuItem("_Toggle Light/Dark", "F5", () => ToggleTheme(ui), new Key()),
                 }),
                 new MenuBarItem("_Help", new View[]
                 {
@@ -165,6 +173,7 @@ namespace Fux
             };
             tree.TreeBuilder = new DelegateTreeBuilder<XmlNode>(n => GetChildren(n), n => System.Linq.Enumerable.Any(GetChildren(n)));
             tree.AspectGetter = n => GetLabel(n);
+            tree.ColorGetter = n => NodeScheme(n); // per-kind row colors, vim xml.vim style
 
             // TextView is marked obsolete in favor of the external tui-cs/Editor package. For a
             // read-only, word-wrapped value display it remains the right-sized built-in; revisit
@@ -206,6 +215,16 @@ namespace Fux
             errorList.Title = SummarizeValidation(errors, root != null).Trim();
             errorList.SetSource(new ObservableCollection<string>(BuildErrorLines(errors)));
 
+            // Severity row colors (vim Error red; yellow for warnings, since vim's WarningMsg
+            // red would hide the distinction). The selected row keeps its Visual bar.
+            errorList.RowRender += (s, e) =>
+            {
+                if (e.Row < 0 || e.Row >= errors.Count) return;
+                if (errorList.HasFocus && errorList.SelectedItem == e.Row) return;
+                if (errors[e.Row].Severity == Severity.Error) e.RowAttribute = Theme.ErrorRow;
+                else if (errors[e.Row].Severity == Severity.Warning) e.RowAttribute = Theme.WarningRow;
+            };
+
             // Enter on an error row jumps to the offending node in the tree. Errors carry the
             // source line/col; FindNodeAt binary-searches the DomLoader line table, then
             // MapToTree walks up to the nearest node the tree actually shows.
@@ -240,6 +259,7 @@ namespace Fux
                 new Shortcut(Key.Q.WithCtrl, "Quit", () => app.RequestStop(top), null),
                 new Shortcut(new Key(), "F9 Menu", null, null), // hint only: a live F9 binding here would swallow the MenuBar's key
                 new Shortcut(Key.F6, "Focus", CycleFocus, null),
+                new Shortcut(Key.F5, "Theme", () => ToggleTheme(ui), null),
             })
             {
                 X = 0, Y = Pos.AnchorEnd(), Width = Dim.Fill(),
@@ -248,18 +268,51 @@ namespace Fux
             foreach (var v in status.SubViews)
                 if (v is Shortcut sc && sc.Action != null) sc.BindKeyToApplication = true;
 
-            // Dark theme on the chrome; panes inherit Content from the top view.
-            menu.SetScheme(Theme.Bar);
-            status.SetScheme(Theme.Bar);
-            valueView.SetScheme(Theme.Flat); // TextView paints its whole area with Focus; Flat keeps the bg dark
-
             top.Add(menu, tree, valueView, errorList, status);
             tree.SetFocus();
-            return new Ui
+            ui = new Ui
             {
-                App = app, Top = top, Menu = menu,
+                App = app, Top = top, Menu = menu, Status = status,
                 Tree = tree, ValueView = valueView, ErrorList = errorList, Errors = errors,
             };
+            ApplyTheme(ui);
+            return ui;
+        }
+
+        // Take the current Theme schemes onto the views. Called at startup and again on every
+        // light/dark toggle — Theme.Load rebuilds its Scheme objects, so each themed view must
+        // re-take its reference; everything else inherits Content from the top view. (The tree's
+        // per-row ColorGetter and the error list's RowRender read Theme at draw time.)
+        internal static void ApplyTheme(Ui ui)
+        {
+            ui.Top.SetScheme(Theme.Content);
+            ui.Menu.SetScheme(Theme.Bar);
+            ui.Status.SetScheme(Theme.Bar);
+            ui.ValueView.SetScheme(Theme.Flat); // TextView paints its whole area with Focus; Flat keeps the bg stable
+            ui.Top.SetNeedsDraw();
+        }
+
+        private static void ToggleTheme(Ui ui)
+        {
+            if (ui == null) return;
+            Theme.Load(!Theme.IsDark);
+            ApplyTheme(ui);
+        }
+
+        // vim xml.vim's group links, via Theme: elements blue (Function -> Identifier),
+        // attributes and processing instructions yellow (Type), comments base01 italic,
+        // CDATA cyan (String). Everything else reads as plain content.
+        private static Terminal.Gui.Drawing.Scheme NodeScheme(XmlNode n)
+        {
+            switch (n.NodeType)
+            {
+                case XmlNodeType.Element: return Theme.NodeElement;
+                case XmlNodeType.Attribute: return Theme.NodeAttribute;
+                case XmlNodeType.ProcessingInstruction: return Theme.NodeAttribute;
+                case XmlNodeType.Comment: return Theme.NodeComment;
+                case XmlNodeType.CDATA: return Theme.NodeCdata;
+                default: return Theme.Content;
+            }
         }
 
         // --------------------------------------------------------------------

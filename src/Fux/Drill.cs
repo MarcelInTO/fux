@@ -32,8 +32,10 @@ namespace Fux
             Check(screen.Contains("┌") && screen.Contains("│") && screen.Contains("┘"), "pane borders render");
 
             // --- 2. TrueColor + zero-leak: every cell is painted, and painted with a theme
-            // background — nothing shows the terminal's own colors through.
+            // background — nothing shows the terminal's own colors through. Node-kind and
+            // severity accents (vim xml.vim mapping) are actually on screen.
             CheckCells(app);
+            CheckAccents(app, ui.Errors.Count > 0);
 
             // --- 3. F6 cycles focus tree -> value -> errors -> tree (app-wide binding).
             Check(ui.Tree.HasFocus, "tree takes initial focus");
@@ -66,7 +68,19 @@ namespace Fux
                 Console.Error.WriteLine("  (no positioned diagnostics; Enter-to-jump not exercised)");
             }
 
-            // --- 6. F9 focuses the menu bar; ^Q requests stop.
+            // --- 6. F5 flips to Solarized light at runtime — same scheme definitions, flipped
+            // base palette — and every painted cell follows; then back to dark.
+            Check(Theme.IsDark, "starts in dark mode");
+            app.Keyboard.RaiseKeyDownEvent(Key.F5);
+            app.LayoutAndDraw(true);
+            Check(!Theme.IsDark, "F5 switches to light mode");
+            CheckCells(app);
+            CheckAccents(app, ui.Errors.Count > 0);
+            app.Keyboard.RaiseKeyDownEvent(Key.F5);
+            app.LayoutAndDraw(true);
+            Check(Theme.IsDark, "F5 returns to dark mode");
+
+            // --- 7. F9 focuses the menu bar; ^Q requests stop.
             bool f9Handled = app.Keyboard.RaiseKeyDownEvent(Key.F9);
             app.RaiseIteration(); // popover show is processed by the main loop
             app.LayoutAndDraw(true);
@@ -108,6 +122,32 @@ namespace Fux
             }
             Check(unpainted == 0, $"all cells painted (unpainted: {unpainted})");
             Check(foreign.Count == 0, $"all backgrounds from the theme palette (foreign: {string.Join(" ", foreign)})");
+        }
+
+        // Prove the vim-xml accent mapping is live: element rows blue, attribute rows yellow
+        // (also the hotkey color), and — when diagnostics exist — error rows red.
+        private static void CheckAccents(Terminal.Gui.App.IApplication app, bool expectErrors)
+        {
+            var blue = new Color("#268bd2");
+            var yellow = new Color("#b58900");
+            var red = new Color("#dc322f");
+            bool sawBlue = false, sawYellow = false, sawRed = false;
+            var cells = app.Driver.GetOutputBuffer().Contents;
+            for (int r = 0; r < cells.GetLength(0); r++)
+            {
+                for (int c = 0; c < cells.GetLength(1); c++)
+                {
+                    var attr = cells[r, c].Attribute;
+                    if (attr == null) continue;
+                    var fg = attr.Value.Foreground;
+                    if (fg.Equals(blue)) sawBlue = true;
+                    else if (fg.Equals(yellow)) sawYellow = true;
+                    else if (fg.Equals(red)) sawRed = true;
+                }
+            }
+            Check(sawBlue, "element rows render blue");
+            Check(sawYellow, "attribute rows render yellow");
+            if (expectErrors) Check(sawRed, "error rows render red");
         }
 
         private static string ScreenText(Terminal.Gui.App.IApplication app)

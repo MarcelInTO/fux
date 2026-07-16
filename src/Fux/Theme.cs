@@ -2,70 +2,134 @@ using Terminal.Gui.Drawing;
 
 namespace Fux
 {
-    // Real Solarized Dark, pinned as TrueColor RGB (Terminal.Gui v2). Unlike the v1 theme —
-    // which could only name 16 ANSI palette *slots* and so shifted appearance with every
-    // terminal color scheme — these are absolute colors: the UI renders identically on any
-    // TrueColor terminal, light or dark.
+    // Solarized, mapped the way the canonical vim-colors-solarized does it
+    // (github.com/altercation/vim-colors-solarized), pinned as TrueColor RGB:
+    //
+    //   Normal        -> base0 on base03            (pane content)
+    //   Visual        -> reversed base01            (selection bar; also lights the
+    //                                                focused pane's border title, which
+    //                                                Terminal.Gui v2 draws with Focus)
+    //   StatusLine    -> base1 on base02            (menu + status chrome)
+    //   WildMenu      -> reversed base2 on base02   (selected chrome item)
+    //   Error         -> red                        Comment -> base01 italic
+    //   String        -> cyan                       (value pane text)
+    //   vim xml.vim:  elements blue (Function->Identifier), attributes + processing
+    //                 instructions yellow (Type), CDATA cyan (String)
+    //
+    // Light mode is solarized.vim's own base flip — base03<->base3, base02<->base2,
+    // base01<->base1, base00<->base0 — with identical accents, applied at runtime by
+    // Load(): the same scheme definitions produce the light rendering automatically.
     internal static class Theme
     {
-        // Solarized palette (Ethan Schoonover)
-        private static readonly Color Base03 = new Color("#002b36"); // darkest background
-        private static readonly Color Base02 = new Color("#073642"); // highlighted background
-        private static readonly Color Base01 = new Color("#586e75"); // dim/secondary content
-        private static readonly Color Base0  = new Color("#839496"); // body text
-        private static readonly Color Base1  = new Color("#93a1a1"); // emphasized text
-        private static readonly Color Base3  = new Color("#fdf6e3"); // near-white (selection text)
+        // Fixed accents — identical in both modes.
         private static readonly Color Yellow = new Color("#b58900");
         private static readonly Color Red    = new Color("#dc322f");
         private static readonly Color Blue   = new Color("#268bd2");
         private static readonly Color Cyan   = new Color("#2aa198");
 
-        private static Attribute A(Color fg, Color bg) => new Attribute(fg, bg);
+        // The sixteen-tone monotone ramp, named for dark mode.
+        private static readonly Color S03 = new Color("#002b36");
+        private static readonly Color S02 = new Color("#073642");
+        private static readonly Color S01 = new Color("#586e75");
+        private static readonly Color S00 = new Color("#657b83");
+        private static readonly Color S0  = new Color("#839496");
+        private static readonly Color S1  = new Color("#93a1a1");
+        private static readonly Color S2  = new Color("#eee8d5");
+        private static readonly Color S3  = new Color("#fdf6e3");
 
-        // Content panes: body text on the darkest background; the selected row is a clearly
-        // visible near-white-on-blue bar; hotkeys pick up the yellow accent.
-        public static readonly Scheme Content = new Scheme
+        // Mode-resolved base tones (dark: Base03 == S03; light: Base03 == S3, ...).
+        private static Color Base03, Base02, Base01, Base00, Base0, Base1, Base2;
+
+        public static bool IsDark { get; private set; }
+
+        public static Scheme Content { get; private set; }
+        public static Scheme Bar { get; private set; }
+        public static Scheme Error { get; private set; }
+        public static Scheme Flat { get; private set; }
+
+        // Per-node-kind row schemes for the tree (vim xml.vim group links).
+        public static Scheme NodeElement { get; private set; }      // Function -> blue
+        public static Scheme NodeAttribute { get; private set; }    // Type -> yellow
+        public static Scheme NodeComment { get; private set; }      // Comment -> base01 italic
+        public static Scheme NodeCdata { get; private set; }        // String -> cyan
+
+        // Per-severity row attributes for the error list.
+        public static Attribute ErrorRow { get; private set; }      // Error -> red
+        public static Attribute WarningRow { get; private set; }    // yellow (Error-red would hide the distinction)
+
+        static Theme() => Load(dark: true);
+
+        public static void Load(bool dark)
         {
-            Normal    = A(Base0,  Base03),
-            Focus     = A(Base3,  Blue),
-            HotNormal = A(Yellow, Base03),
-            HotFocus  = A(Yellow, Blue),
-            Disabled  = A(Base01, Base03),
+            IsDark = dark;
+            Base03 = dark ? S03 : S3;
+            Base02 = dark ? S02 : S2;
+            Base01 = dark ? S01 : S1;
+            Base00 = dark ? S00 : S0;
+            Base0  = dark ? S0  : S00;
+            Base1  = dark ? S1  : S01;
+            Base2  = dark ? S2  : S02;
+
+            Attribute A(Color fg, Color bg) => new Attribute(fg, bg);
+            // vim Visual: reversed base01 — the selection bar in every pane.
+            var visual = A(Base03, Base01);
+
+            Content = new Scheme
+            {
+                Normal    = A(Base0,  Base03),
+                Focus     = visual,
+                HotNormal = A(Yellow, Base03),
+                HotFocus  = A(Yellow, Base01),
+                Disabled  = A(Base01, Base03),
+            };
+            // StatusLine chrome; WildMenu for the selected item.
+            Bar = new Scheme
+            {
+                Normal    = A(Base1,  Base02),
+                Focus     = A(Base02, Base2),
+                HotNormal = A(Yellow, Base02),
+                HotFocus  = A(new Color("#cb4b16"), Base2), // orange: yellow is unreadable on base2
+                Disabled  = A(Base00, Base02),
+            };
+            Error = new Scheme
+            {
+                Normal    = A(Red,   Base03),
+                Focus     = A(Base3Fixed(dark), Red),
+                HotNormal = A(Red,   Base03),
+                HotFocus  = A(Base3Fixed(dark), Red),
+                Disabled  = A(Base01, Base03),
+            };
+            // Value pane: vim String -> cyan. Focus/ReadOnly pinned so the TextView neither
+            // floods on focus nor gets v2's derived (off-palette) dimming.
+            Flat = new Scheme
+            {
+                Normal    = A(Cyan,   Base03),
+                Focus     = A(Cyan,   Base03),
+                HotNormal = A(Yellow, Base03),
+                HotFocus  = A(Yellow, Base03),
+                Disabled  = A(Base01, Base03),
+                ReadOnly  = A(Cyan,   Base03),
+            };
+
+            NodeElement   = Node(A(Blue,   Base03), visual);
+            NodeAttribute = Node(A(Yellow, Base03), visual);
+            NodeComment   = Node(new Attribute(Base01, Base03, TextStyle.Italic),
+                                 new Attribute(Base03, Base01, TextStyle.Italic));
+            NodeCdata     = Node(A(Cyan,   Base03), visual);
+
+            ErrorRow   = A(Red,    Base03);
+            WarningRow = A(Yellow, Base03);
+        }
+
+        // A row scheme: the node-kind accent when unselected, the Visual bar when selected.
+        private static Scheme Node(Attribute normal, Attribute focus) => new Scheme
+        {
+            Normal = normal, Focus = focus,
+            HotNormal = normal, HotFocus = focus,
+            Disabled = normal,
         };
 
-        // Menu + status bar chrome: emphasized text on the highlight background; the selected
-        // item is base03-on-cyan (cyan = "active" accent, distinct from the blue selection bar).
-        public static readonly Scheme Bar = new Scheme
-        {
-            Normal    = A(Base1,  Base02),
-            Focus     = A(Base03, Cyan),
-            HotNormal = A(Yellow, Base02),
-            HotFocus  = A(Base03, Cyan),
-            Disabled  = A(Base01, Base02),
-        };
-
-        // Error dialogs / accents.
-        public static readonly Scheme Error = new Scheme
-        {
-            Normal    = A(Red,    Base03),
-            Focus     = A(Base3,  Red),
-            HotNormal = A(Red,    Base03),
-            HotFocus  = A(Base3,  Red),
-            Disabled  = A(Base01, Base03),
-        };
-
-        // For views that paint their WHOLE area with Focus (e.g. TextView) rather than just a
-        // selected row: keep the dark background on focus so the pane doesn't flood with the
-        // selection color. Text brightens slightly instead. ReadOnly is pinned because v2
-        // otherwise derives it by dimming Normal — off the Solarized palette.
-        public static readonly Scheme Flat = new Scheme
-        {
-            Normal    = A(Base0,  Base03),
-            Focus     = A(Base1,  Base03),
-            HotNormal = A(Yellow, Base03),
-            HotFocus  = A(Yellow, Base03),
-            Disabled  = A(Base01, Base03),
-            ReadOnly  = A(Base0,  Base03),
-        };
+        // Near-white for text on the red error bar: base3 in dark mode, base03 in light.
+        private static Color Base3Fixed(bool dark) => dark ? S3 : S03;
     }
 }
