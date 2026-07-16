@@ -25,8 +25,10 @@ namespace Fux
             app.LayoutAndDraw(true);
 
             // --- 1. Chrome: bordered panes render with their titles; summary on the error pane.
+            // The tree pane title doubles as the document title (file basename).
+            var docTitle = file == null ? "Tree" : System.IO.Path.GetFileName(file);
             var screen = ScreenText(app);
-            Check(screen.Contains("Tree"), "tree pane title renders");
+            Check(screen.Contains(docTitle), $"tree pane titled '{docTitle}'");
             Check(screen.Contains("Value"), "value pane title renders");
             Check(screen.Contains("Validation:") || screen.Contains("(no file loaded)"), "validation summary renders");
             Check(screen.Contains("┌") && screen.Contains("│") && screen.Contains("┘"), "pane borders render");
@@ -80,7 +82,59 @@ namespace Fux
             app.LayoutAndDraw(true);
             Check(Theme.IsDark, "F5 returns to dark mode");
 
-            // --- 7. F9 focuses the menu bar; ^Q requests stop.
+            // --- 7. Editing: F2 starts an in-place edit in the value pane, F2 commits it
+            // through the UndoManager (DOM write + dirty + revalidate), ^Z/^Y walk history,
+            // Esc abandons a live edit, and ^S persists to disk (Main redirected --drill to
+            // a scratch copy, so saving here can't touch the caller's file).
+            var editable = FindEditable(Program.Model.Document?.DocumentElement);
+            if (editable != null)
+            {
+#pragma warning disable CS0618 // TextView: see the BuildUi note on the obsolete flag
+                var tv = (Terminal.Gui.Views.TextView)ui.ValueView;
+#pragma warning restore CS0618
+                var before = EditNodeValue.GetNodeValue(editable);
+                ui.Tree.EnsureVisible(editable);
+                ui.Tree.SelectedObject = editable;
+                ui.Tree.SetFocus();
+                app.Keyboard.RaiseKeyDownEvent(Key.F2);
+                Check(ui.Editing, "F2 enters value-edit mode");
+                Check(tv.HasFocus && !tv.ReadOnly, "value pane becomes the editable focus target");
+                tv.Text = before + "-edited";
+                app.Keyboard.RaiseKeyDownEvent(Key.F2);
+                Check(!ui.Editing && ui.Tree.HasFocus, "F2 commits, leaves edit mode, refocuses tree");
+                Check(EditNodeValue.GetNodeValue(editable) == before + "-edited", "commit writes the DOM");
+                Check(Program.Model.Dirty, "edit marks the model dirty");
+                Check(ui.Tree.Title.EndsWith(" *"), "tree title shows the dirty marker");
+
+                app.Keyboard.RaiseKeyDownEvent(Key.Z.WithCtrl);
+                Check(EditNodeValue.GetNodeValue(editable) == before, "^Z undoes the edit");
+                Check(tv.Text == before, "value pane follows the undo");
+                app.Keyboard.RaiseKeyDownEvent(Key.Y.WithCtrl);
+                Check(EditNodeValue.GetNodeValue(editable) == before + "-edited", "^Y redoes the edit");
+
+                app.Keyboard.RaiseKeyDownEvent(Key.F2);
+                tv.Text = "abandoned";
+                app.Keyboard.RaiseKeyDownEvent(Key.Esc);
+                Check(!ui.Editing && ui.Tree.HasFocus, "Esc cancels the edit and refocuses the tree");
+                Check(EditNodeValue.GetNodeValue(editable) == before + "-edited", "cancelled edit leaves the DOM alone");
+
+                app.Keyboard.RaiseKeyDownEvent(Key.S.WithCtrl);
+                Check(!Program.Model.Dirty, "^S saves and clears dirty");
+                Check(!ui.Tree.Title.EndsWith(" *"), "dirty marker clears after save");
+                Check(System.IO.File.ReadAllText(file).Contains(before + "-edited"), "saved file contains the edited value");
+
+                // Enter on the tree is the discoverable alias for F2's start-edit.
+                app.Keyboard.RaiseKeyDownEvent(Key.Enter);
+                Check(ui.Editing, "Enter on the tree starts an edit");
+                app.Keyboard.RaiseKeyDownEvent(Key.Esc);
+                Check(!ui.Editing, "Esc closes it again");
+            }
+            else
+            {
+                Console.Error.WriteLine("  (no editable node; editing drill not exercised)");
+            }
+
+            // --- 8. F9 focuses the menu bar; ^Q requests stop.
             bool f9Handled = app.Keyboard.RaiseKeyDownEvent(Key.F9);
             app.RaiseIteration(); // popover show is processed by the main loop
             app.LayoutAndDraw(true);
@@ -161,6 +215,20 @@ namespace Fux
                 sb.Append('\n');
             }
             return sb.ToString();
+        }
+
+        // First node in the displayed tree whose value fux lets you edit (DFS in tree order,
+        // so attributes come first, exactly as the tree presents them).
+        private static XmlNode FindEditable(XmlNode n)
+        {
+            if (n == null) return null;
+            if (EditNodeValue.CanEditValue(n)) return n;
+            foreach (var c in Program.GetChildren(n))
+            {
+                var hit = FindEditable(c);
+                if (hit != null) return hit;
+            }
+            return null;
         }
 
         private static bool Check(bool ok, string what)

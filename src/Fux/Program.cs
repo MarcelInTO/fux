@@ -29,6 +29,20 @@ namespace Fux
             // against the PARENT of the cwd. Handing it a full path sidesteps that entirely.
             if (file != null) file = System.IO.Path.GetFullPath(file);
 
+            // --drill edits and saves the document; run it against a scratch copy so the
+            // self-test never touches the caller's file. Sibling schemas travel with the
+            // document so relative xsi:schemaLocation hints still resolve.
+            if (drill && file != null)
+            {
+                var dir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "fux-drill");
+                System.IO.Directory.CreateDirectory(dir);
+                foreach (var xsd in System.IO.Directory.GetFiles(System.IO.Path.GetDirectoryName(file), "*.xsd"))
+                    System.IO.File.Copy(xsd, System.IO.Path.Combine(dir, System.IO.Path.GetFileName(xsd)), true);
+                var tmp = System.IO.Path.Combine(dir, System.IO.Path.GetFileName(file));
+                System.IO.File.Copy(file, tmp, true);
+                file = tmp;
+            }
+
             // --- Build the reused XmlNotepad engine, headless ---
             var settings = new Settings();
             settings.SetDefaults();
@@ -119,7 +133,13 @@ namespace Fux
             public View ValueView;   // typed View: TextView is obsolete-flagged, see BuildUi
             public ListView ErrorList;
             public List<ErrorItem> Errors;
+            public UndoManager Undo;
+            public bool Editing;     // value-pane edit mode (F2 commits, Esc cancels)
+            public XmlNode EditNode; // node whose value is being edited
         }
+
+        // Drill introspection: the engine instance behind the UI.
+        internal static XmlCache Model => _model;
 
         internal static Ui BuildUi(string file)
         {
@@ -140,11 +160,21 @@ namespace Fux
             // construction: the MenuBar binds its activation key once in its constructor, and
             // the instance Key setter does not rebind (verified against the 2.4.17 source).
             MenuBar.DefaultKey = Key.F9;
+            // Menu items carry hint text only (new Key()): every key gets exactly one live,
+            // app-wide binding via the StatusBar shortcuts below — a second binding here
+            // could double-fire (fatal for the F2 edit toggle: start + instant commit).
             var menu = new MenuBar(new MenuItem[]
             {
                 new MenuBarItem("_File", new View[]
                 {
-                    new MenuItem("_Quit", "", () => app.RequestStop(top), Key.Q.WithCtrl),
+                    new MenuItem("_Save", "^S", () => SaveFile(ui), new Key()),
+                    new MenuItem("_Quit", "^Q", () => RequestQuit(ui), new Key()),
+                }),
+                new MenuBarItem("_Edit", new View[]
+                {
+                    new MenuItem("Edit _Value", "F2", () => ToggleValueEdit(ui), new Key()),
+                    new MenuItem("_Undo", "^Z", () => DoUndo(ui), new Key()),
+                    new MenuItem("_Redo", "^Y", () => DoRedo(ui), new Key()),
                 }),
                 new MenuBarItem("_View", new View[]
                 {
@@ -195,6 +225,24 @@ namespace Fux
                 valueView.Text = n == null ? "" : GetValue(n) ?? "";
             };
 
+            // Enter on the tree starts editing the selected node's value (F2 does the same
+            // app-wide; F2 again commits, Esc cancels).
+            tree.Accepting += (s, e) =>
+            {
+                if (StartValueEdit(ui)) e.Handled = true;
+            };
+
+            // Esc in the value pane abandons a live edit. The KeyDown event fires before the
+            // TextView's own key processing, so this wins while editing and is inert otherwise.
+            valueView.KeyDown += (s, e) =>
+            {
+                if (ui != null && ui.Editing && e.KeyCode == Key.Esc.KeyCode)
+                {
+                    CancelValueEdit(ui);
+                    e.Handled = true;
+                }
+            };
+
             // --- Bottom: validation/error pane. Its border title carries the summary.
             var errorList = new ListView
             {
@@ -210,10 +258,9 @@ namespace Fux
                 tree.SelectedObject = root;
             }
 
-            // Validate the loaded document and surface the diagnostics in the pane.
-            var errors = RunValidation();
-            errorList.Title = SummarizeValidation(errors, root != null).Trim();
-            errorList.SetSource(new ObservableCollection<string>(BuildErrorLines(errors)));
+            // Filled by Revalidate (initially below, then after every edit/undo/redo). The
+            // RowRender/Accepting closures hold this list reference, so it's mutated in place.
+            var errors = new List<ErrorItem>();
 
             // Severity row colors (vim Error red; yellow for warnings, since vim's WarningMsg
             // red would hide the distinction). The selected row keeps its Visual bar.
@@ -247,6 +294,7 @@ namespace Fux
             var focusRing = new View[] { tree, valueView, errorList };
             void CycleFocus()
             {
+                if (ui != null && ui.Editing) return; // don't yank focus out of a live edit
                 int cur = Array.FindIndex(focusRing, v => v.HasFocus);
                 focusRing[(cur + 1) % focusRing.Length].SetFocus();
             }
@@ -256,9 +304,13 @@ namespace Fux
             // off by default on macOS, so F9 is the reliable path.
             var status = new StatusBar(new Shortcut[]
             {
-                new Shortcut(Key.Q.WithCtrl, "Quit", () => app.RequestStop(top), null),
+                new Shortcut(Key.Q.WithCtrl, "Quit", () => RequestQuit(ui), null),
                 new Shortcut(new Key(), "F9 Menu", null, null), // hint only: a live F9 binding here would swallow the MenuBar's key
                 new Shortcut(Key.F6, "Focus", CycleFocus, null),
+                new Shortcut(Key.F2, "Edit", () => ToggleValueEdit(ui), null),
+                new Shortcut(Key.S.WithCtrl, "Save", () => SaveFile(ui), null),
+                new Shortcut(Key.Z.WithCtrl, "Undo", () => DoUndo(ui), null),
+                new Shortcut(Key.Y.WithCtrl, "Redo", () => DoRedo(ui), null),
                 new Shortcut(Key.F5, "Theme", () => ToggleTheme(ui), null),
             })
             {
@@ -270,11 +322,22 @@ namespace Fux
 
             top.Add(menu, tree, valueView, errorList, status);
             tree.SetFocus();
+
+            // The undo stack: commands mutate the DOM; these events drive the view refresh
+            // (reselect the touched node, sync value pane, revalidate, dirty marker).
+            var undo = new UndoManager(1000);
+            undo.CommandDone += (s, e) => AfterUndoableChange(ui, e.Command);
+            undo.CommandUndone += (s, e) => AfterUndoableChange(ui, e.Command);
+            undo.CommandRedone += (s, e) => AfterUndoableChange(ui, e.Command);
+
             ui = new Ui
             {
                 App = app, Top = top, Menu = menu, Status = status,
                 Tree = tree, ValueView = valueView, ErrorList = errorList, Errors = errors,
+                Undo = undo,
             };
+            Revalidate(ui);
+            UpdateTitle(ui);
             ApplyTheme(ui);
             return ui;
         }
@@ -297,6 +360,136 @@ namespace Fux
             if (ui == null) return;
             Theme.Load(!Theme.IsDark);
             ApplyTheme(ui);
+        }
+
+        // --------------------------------------------------------------------
+        // Editing: node values, in place in the value pane. F2 (or Enter on the
+        // tree) starts an edit, F2 commits it through the UndoManager, Esc
+        // abandons it. ^Z/^Y walk history; ^S saves.
+        // --------------------------------------------------------------------
+#pragma warning disable CS0618 // TextView: see the BuildUi note on the obsolete flag
+        private static void ToggleValueEdit(Ui ui)
+        {
+            if (ui == null) return;
+            if (ui.Editing) CommitValueEdit(ui);
+            else StartValueEdit(ui);
+        }
+
+        private static bool StartValueEdit(Ui ui)
+        {
+            if (ui == null || ui.Editing) return false;
+            var n = ui.Tree.SelectedObject;
+            if (n == null || !EditNodeValue.CanEditValue(n)) return false;
+            ui.Editing = true;
+            ui.EditNode = n;
+            var tv = (TextView)ui.ValueView;
+            tv.ReadOnly = false;
+            tv.Title = "Value — editing (F2: commit, Esc: cancel)";
+            tv.SetFocus();
+            return true;
+        }
+
+        private static void CommitValueEdit(Ui ui)
+        {
+            var node = ui.EditNode;
+            var text = ((TextView)ui.ValueView).Text;
+            EndValueEdit(ui);
+            // Push executes Do() and fires CommandDone → AfterUndoableChange refreshes the
+            // view. An unchanged value is a no-op push: nothing fires, nothing goes dirty.
+            ui.Undo.Push(new EditNodeValue(node, text));
+        }
+
+        private static void CancelValueEdit(Ui ui) => EndValueEdit(ui);
+
+        // Leave edit mode and restore the read-only value pane from the DOM.
+        private static void EndValueEdit(Ui ui)
+        {
+            var node = ui.EditNode;
+            ui.Editing = false;
+            ui.EditNode = null;
+            var tv = (TextView)ui.ValueView;
+            tv.ReadOnly = true;
+            tv.Title = "Value";
+            tv.Text = node == null ? "" : GetValue(node) ?? "";
+            ui.Tree.SetFocus();
+        }
+
+#pragma warning restore CS0618
+
+        private static void DoUndo(Ui ui)
+        {
+            if (ui == null || ui.Editing) return;
+            ui.Undo.Undo(); // no-ops when the stack is empty
+        }
+
+        private static void DoRedo(Ui ui)
+        {
+            if (ui == null || ui.Editing) return;
+            ui.Undo.Redo();
+        }
+
+        // After any Do/Undo/Redo: reveal + reselect the touched node, sync the value pane,
+        // revalidate, and refresh the dirty marker. (XmlCache watches the DOM and maintains
+        // Dirty/ModelChanged on its own; this is purely the view side.)
+        private static void AfterUndoableChange(Ui ui, XmlNotepad.Command cmd)
+        {
+            if (ui == null) return;
+            if ((cmd as INodeCommand)?.Node is XmlNode node)
+            {
+                ui.Tree.EnsureVisible(node); // expands ancestors if the node got hidden
+                ui.Tree.RefreshObject(node, false);
+                ui.Tree.SelectedObject = node;
+            }
+            var sel = ui.Tree.SelectedObject;
+            ui.ValueView.Text = sel == null ? "" : GetValue(sel) ?? "";
+            Revalidate(ui);
+            UpdateTitle(ui);
+        }
+
+        // Re-run validation over the (possibly edited) DOM and refresh the error pane.
+        // Mutates ui.Errors in place: the RowRender/Accepting closures hold the list reference.
+        private static void Revalidate(Ui ui)
+        {
+            var items = RunValidation();
+            ui.Errors.Clear();
+            ui.Errors.AddRange(items);
+            ui.ErrorList.Title = SummarizeValidation(ui.Errors, _model.Document?.DocumentElement != null).Trim();
+            ui.ErrorList.SetSource(new ObservableCollection<string>(BuildErrorLines(ui.Errors)));
+        }
+
+        // The tree pane title doubles as the document title: file name + dirty marker.
+        private static void UpdateTitle(Ui ui)
+        {
+            var name = _model.FileName == null ? "Tree" : System.IO.Path.GetFileName(_model.FileName);
+            ui.Tree.Title = _model.Dirty ? name + " *" : name;
+        }
+
+        private static void SaveFile(Ui ui)
+        {
+            if (ui == null || ui.Editing) return;
+            if (_model.FileName == null) return; // Save As arrives with the file-open milestone
+            try
+            {
+                _model.Save(_model.FileName);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Query(ui.App, "Save failed", ex.Message, "OK");
+            }
+            UpdateTitle(ui);
+        }
+
+        private static void RequestQuit(Ui ui)
+        {
+            if (ui == null) return;
+            if (_model.Dirty)
+            {
+                var name = _model.FileName == null ? "this document" : System.IO.Path.GetFileName(_model.FileName);
+                int choice = MessageBox.Query(ui.App, "Unsaved changes", $"Save changes to {name}?", "Save", "Discard", "Cancel") ?? 2;
+                if (choice == 0) { SaveFile(ui); if (_model.Dirty) return; } // save failed → stay
+                else if (choice != 1) return; // Cancel (or dismissed)
+            }
+            ui.App.RequestStop(ui.Top);
         }
 
         // vim xml.vim's group links, via Theme: elements blue (Function -> Identifier),
@@ -381,7 +574,7 @@ namespace Fux
         // Shared node → (label, value, children) mapping. This is the little bit
         // of "view model" that turns the XmlNotepad DOM into a two-pane tree.
         // --------------------------------------------------------------------
-        private static IEnumerable<XmlNode> GetChildren(XmlNode n)
+        internal static IEnumerable<XmlNode> GetChildren(XmlNode n)
         {
             if (n is XmlElement el && el.Attributes != null)
                 foreach (XmlAttribute a in el.Attributes)
@@ -417,6 +610,7 @@ namespace Fux
                 case XmlNodeType.Comment:
                 case XmlNodeType.CDATA:
                 case XmlNodeType.Text:
+                case XmlNodeType.ProcessingInstruction: // Value aliases the PI's Data
                     return n.Value;
                 case XmlNodeType.Element:
                     string text = null;
