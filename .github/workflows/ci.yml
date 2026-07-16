@@ -2,14 +2,15 @@ name: fux CI
 
 # Cross-platform build + headless smoke for the fux TUI and the reused XmlNotepad engine,
 # and publish of a self-contained single-file binary per OS as a downloadable artifact.
-# Scoped to the `fux` product branch (upstream's own workflows are master-only). Interactive
-# TUI rendering is verified by a human per platform; this covers build + engine behavior.
+# Scoped to the fux product branches (upstream's own workflows are master-only). The TUI
+# itself is exercised by the --drill self-test under a PTY on Linux/macOS; final visual
+# checks per platform remain human.
 
 on:
   push:
-    branches: [ fux ]
+    branches: [ fux, fux-v2 ]
   pull_request:
-    branches: [ fux ]
+    branches: [ fux, fux-v2 ]
   workflow_dispatch:
 
 permissions:
@@ -38,12 +39,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup .NET 8 SDK
+      - name: Setup .NET 10 SDK
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: '8.0.x'
+          dotnet-version: '10.0.x'
 
-      # Builds the reused Model engine (netstandard2.0) + the Fux TUI (net8.0).
+      # Builds the reused Model engine (netstandard2.0) + the Fux TUI (net10.0,
+      # required by Terminal.Gui v2).
       - name: Build engine + TUI (Release)
         run: dotnet build src/Fux/Fux.csproj -c Release
 
@@ -85,6 +87,24 @@ jobs:
           [ "$code" -eq 1 ] || { echo "::error::--validate should exit 1 on an invalid doc (got $code)"; exit 1; }
           echo "$out" | grep -q "MinInclusive constraint failed" || { echo "::error::missing expected Zip range error"; exit 1; }
           echo "$out" | grep -q -- "-> <Zip>"                    || { echo "::error::error row did not map to the <Zip> node"; exit 1; }
+
+      # Drives the real TUI under a PTY: --drill builds the actual UI, injects key events
+      # (F6 focus ring, Enter-to-jump, F9 menu, ^Q), and asserts against the driver's output
+      # buffer — borders/titles render, every cell painted, only theme-palette backgrounds.
+      # Windows is skipped: no script(1)/PTY equivalent on the runner.
+      - name: TUI drill (headless interactive self-test)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set +e
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            script -q /dev/null dotnet run --project src/Fux -c Release -- --drill src/UnitTests/emp-invalid.xml > drill.out 2>&1
+          else
+            script -qec "dotnet run --project src/Fux -c Release -- --drill src/UnitTests/emp-invalid.xml" /dev/null > drill.out 2>&1
+          fi
+          set -e
+          sed 's/\x1b\[[0-9;?]*[a-zA-Z]//g' drill.out | grep -aE '^\s*\[(ok|FAIL)\]|DRILL:' || true
+          grep -aq "DRILL: PASS" drill.out || { echo "::error::TUI drill failed"; exit 1; }
 
       # Self-contained single-file binary (bundles the .NET runtime; no install needed to run).
       - name: Publish single-file binary (${{ matrix.rid }})

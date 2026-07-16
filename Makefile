@@ -66,6 +66,12 @@ run:
 dump:
 	dotnet run --project src/Fux -c $(CONFIG) -- --dump "$(FILE)"
 
+## drill: headless interactive self-test of the TUI (key injection + render assertions)
+drill:
+	@script -q /dev/null dotnet run --project src/Fux -c $(CONFIG) -- --drill "$(FILE)" > /tmp/fux-drill.out 2>&1; \
+	sed 's/\x1b\[[0-9;?]*[a-zA-Z]//g' /tmp/fux-drill.out | grep -E '^\s*\[(ok|FAIL)\]|DRILL:'; \
+	grep -q "DRILL: PASS" /tmp/fux-drill.out
+
 ## smoke: headless engine build + XSD-validation check
 smoke:
 	dotnet run --project sandbox/smoke -c $(CONFIG) -- "$(FILE)"

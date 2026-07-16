@@ -1,9 +1,12 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.Xml;
-using Terminal.Gui;
-using Terminal.Gui.Graphs;
-using Terminal.Gui.Trees;
+using Terminal.Gui.App;
+using Terminal.Gui.Drawing;
+using Terminal.Gui.Input;
+using Terminal.Gui.ViewBase;
+using Terminal.Gui.Views;
 using XmlNotepad;
 
 namespace Fux
@@ -16,6 +19,7 @@ namespace Fux
         {
             var dump = Array.IndexOf(args, "--dump") >= 0;
             var validate = Array.IndexOf(args, "--validate") >= 0;
+            var drill = Array.IndexOf(args, "--drill") >= 0;
             string file = null;
             foreach (var a in args)
                 if (!a.StartsWith("--")) { file = a; break; }
@@ -46,7 +50,7 @@ namespace Fux
                 }
             }
 
-            return dump ? Dump() : validate ? Validate() : RunUi(file);
+            return dump ? Dump() : validate ? Validate() : drill ? Drill.Run(file) : RunUi(file);
         }
 
         // --------------------------------------------------------------------
@@ -97,66 +101,83 @@ namespace Fux
         // --------------------------------------------------------------------
         private static int RunUi(string file)
         {
-            Application.Init();
-            Theme.Apply();
-            var top = Application.Top;
-            top.ColorScheme = Theme.Content;
+            var ui = BuildUi(file);
+            ui.App.Run(ui.Top, null);
+            ui.App.Dispose();
+            return 0;
+        }
 
-            var menu = new MenuBar(new MenuBarItem[]
+        // The assembled interactive UI: what RunUi runs and what the --drill self-test drives
+        // step-by-step (Begin / inject keys / read the output buffer / End).
+        internal sealed class Ui
+        {
+            public IApplication App;
+            public Runnable Top;
+            public MenuBar Menu;
+            public TreeView<XmlNode> Tree;
+            public View ValueView;   // typed View: TextView is obsolete-flagged, see BuildUi
+            public ListView ErrorList;
+            public List<ErrorItem> Errors;
+        }
+
+        internal static Ui BuildUi(string file)
+        {
+            // v2 is instance-based (the static Application facade is marked obsolete).
+            var app = Application.Create(null);
+            app.Init(null);
+
+            // v2 has no Toplevel/Window split: a Runnable is a plain View that app.Run drives.
+            // Views without their own Scheme inherit from the superview, so setting the content
+            // scheme here themes everything we don't explicitly override.
+            var top = new Runnable();
+            top.SetScheme(Theme.Content);
+
+            // F9 activates the menu bar, as in v1. Must be set via the static default BEFORE
+            // construction: the MenuBar binds its activation key once in its constructor, and
+            // the instance Key setter does not rebind (verified against the 2.4.17 source).
+            MenuBar.DefaultKey = Key.F9;
+            var menu = new MenuBar(new MenuItem[]
             {
-                new MenuBarItem("_File", new MenuItem[]
+                new MenuBarItem("_File", new View[]
                 {
-                    new MenuItem("_Quit", "", () => Application.RequestStop(), null, null, Key.CtrlMask | Key.Q),
+                    new MenuItem("_Quit", "", () => app.RequestStop(top), Key.Q.WithCtrl),
                 }),
-                new MenuBarItem("_Help", new MenuItem[]
+                new MenuBarItem("_Help", new View[]
                 {
                     new MenuItem("_About", "", () =>
-                        MessageBox.Query("About fux", "A terminal XML editor over the XmlNotepad engine.", "OK")),
+                        MessageBox.Query(app, "About fux", "A terminal XML editor over the XmlNotepad engine.", "OK")),
                 }),
-            });
-
-            // Borderless content region between the menu (row 0) and the status bar (last row).
-            // Not a Window: in Terminal.Gui v1 the Window's top/bottom border rows only draw the
-            // corners+title and leave the rest of those rows at the terminal's default background,
-            // which leaks through on a light terminal. A plain View has no border to leak; the
-            // full-screen backdrop (added below) supplies the dark background behind everything.
-            var win = new View
+            })
             {
-                X = 0, Y = 1, Width = Dim.Fill(), Height = Dim.Fill(1), ColorScheme = Theme.Content,
+                X = 0, Y = 0, Width = Dim.Fill(),
             };
 
-            // Panes are borderless: Terminal.Gui v1 FrameView borders render badly for side-by-side
-            // panes (titles collapse/overlap). Instead each pane has a title strip that lights up
-            // when the pane is focused (wiring below), and a vertical line divides tree from value.
-            // The bottom PaneH rows are the validation pane: its title strip (which carries the
-            // summary) + the scrollable error list. Dim.Fill(PaneH) leaves exactly that gap.
-            const int PaneH = 7; // error title strip (1) + 6 visible rows
+            // Bordered panes (v2 Adornments): each pane draws its own border + title, so the v1
+            // title-strip labels and the tree/value divider line are gone. The bottom ErrorPaneH
+            // rows are the validation pane; its border title carries the summary. Dim.Fill leaves
+            // room for it plus the status bar row.
+            const int ErrorPaneH = 8; // border (2) + 6 visible error rows
 
-            var treeTitle = new Label(" Tree")
-            {
-                X = 0, Y = 0, Width = Dim.Percent(33), Height = 1, AutoSize = false,
-            };
             var tree = new TreeView<XmlNode>
             {
-                X = 0, Y = 1, Width = Dim.Percent(33), Height = Dim.Fill(PaneH),
+                X = 0, Y = 1, Width = Dim.Percent(33), Height = Dim.Fill(ErrorPaneH + 1),
+                Title = "Tree", BorderStyle = LineStyle.Single,
             };
-            tree.TreeBuilder = new DelegateTreeBuilder<XmlNode>(n => GetChildren(n));
+            tree.TreeBuilder = new DelegateTreeBuilder<XmlNode>(n => GetChildren(n), n => System.Linq.Enumerable.Any(GetChildren(n)));
             tree.AspectGetter = n => GetLabel(n);
 
-            var divider = new LineView(Orientation.Vertical)
-            {
-                X = Pos.Right(tree), Y = 0, Width = 1, Height = Dim.Fill(PaneH),
-            };
-
-            var valueTitle = new Label(" Value")
-            {
-                X = Pos.Right(divider), Y = 0, Width = Dim.Fill(), Height = 1, AutoSize = false,
-            };
+            // TextView is marked obsolete in favor of the external tui-cs/Editor package. For a
+            // read-only, word-wrapped value display it remains the right-sized built-in; revisit
+            // when fux grows editing (Editor brings undo/multi-caret/find — that decision is
+            // tracked with the editing architecture question).
+#pragma warning disable CS0618
             var valueView = new TextView
             {
-                X = Pos.Right(divider), Y = 1, Width = Dim.Fill(), Height = Dim.Fill(PaneH),
+                X = Pos.Right(tree), Y = 1, Width = Dim.Fill(), Height = Dim.Fill(ErrorPaneH + 1),
                 ReadOnly = true, WordWrap = true,
+                Title = "Value", BorderStyle = LineStyle.Single,
             };
+#pragma warning restore CS0618
 
             // Two-pane sync: the tree drives, the value pane reflects the selection.
             tree.SelectionChanged += (s, e) =>
@@ -165,14 +186,11 @@ namespace Fux
                 valueView.Text = n == null ? "" : GetValue(n) ?? "";
             };
 
-            // --- Bottom: validation/error pane. Its title strip carries the summary.
-            var errorTitle = new Label("")
-            {
-                X = 0, Y = Pos.Bottom(tree), Width = Dim.Fill(), Height = 1, AutoSize = false,
-            };
+            // --- Bottom: validation/error pane. Its border title carries the summary.
             var errorList = new ListView
             {
-                X = 0, Y = Pos.Bottom(errorTitle), Width = Dim.Fill(), Height = Dim.Fill(),
+                X = 0, Y = Pos.Bottom(tree), Width = Dim.Fill(), Height = Dim.Fill(1),
+                BorderStyle = LineStyle.Single,
             };
 
             var root = _model.Document?.DocumentElement;
@@ -185,15 +203,15 @@ namespace Fux
 
             // Validate the loaded document and surface the diagnostics in the pane.
             var errors = RunValidation();
-            errorTitle.Text = SummarizeValidation(errors, root != null);
-            errorList.SetSource(BuildErrorLines(errors));
+            errorList.Title = SummarizeValidation(errors, root != null).Trim();
+            errorList.SetSource(new ObservableCollection<string>(BuildErrorLines(errors)));
 
             // Enter on an error row jumps to the offending node in the tree. Errors carry the
             // source line/col; FindNodeAt binary-searches the DomLoader line table, then
             // MapToTree walks up to the nearest node the tree actually shows.
-            errorList.OpenSelectedItem += (args) =>
+            errorList.Accepting += (s, e) =>
             {
-                int i = args.Item;
+                int i = errorList.SelectedItem ?? -1;
                 if (i < 0 || i >= errors.Count) return;
                 var item = errors[i];
                 if (item.Line <= 0) return; // diagnostic isn't tied to a source position
@@ -202,13 +220,11 @@ namespace Fux
                 tree.SelectedObject = node;
                 tree.EnsureVisible(node);
                 tree.SetFocus();
-                tree.SetNeedsDisplay();
+                e.Handled = true;
             };
 
-            win.Add(treeTitle, tree, divider, valueTitle, valueView, errorTitle, errorList);
-
-            // F6 cycles focus tree -> value -> errors. Driven from a StatusBar hotkey so it
-            // works from any pane (none of the three views consume F6 themselves).
+            // F6 cycles focus tree -> value -> errors. Bound application-wide via the StatusBar
+            // shortcut (BindKeyToApplication below), so it works from any pane.
             var focusRing = new View[] { tree, valueView, errorList };
             void CycleFocus()
             {
@@ -216,58 +232,34 @@ namespace Fux
                 focusRing[(cur + 1) % focusRing.Length].SetFocus();
             }
 
-            // F9 opens the menu bar (Terminal.Gui's default menu activator; set explicitly so it
-            // never depends on the library default). Alt+F/Alt+H also work when the terminal
-            // sends Option as Meta — off by default on macOS, so F9 is the reliable path.
-            menu.Key = Key.F9;
-
-            var status = new StatusBar(new StatusItem[]
+            // The status F9 entry is a hint only, with no live key, so it can't race the MenuBar
+            // for the keypress. Alt+F/Alt+H also work when the terminal sends Option as Meta —
+            // off by default on macOS, so F9 is the reliable path.
+            var status = new StatusBar(new Shortcut[]
             {
-                new StatusItem(Key.CtrlMask | Key.Q, "~^Q~ Quit", () => Application.RequestStop()),
-                new StatusItem(Key.Null, "~F9~ Menu", null),   // hint only; the MenuBar handles F9 itself
-                new StatusItem(Key.F6, "~F6~ Focus", CycleFocus),
-                new StatusItem(Key.Null, file ?? "(no file)", null),
-            });
-
-            // Dark theme on the key views (the globals set in Theme.Apply cover the rest).
-            menu.ColorScheme = Theme.Bar;
-            // Terminal.Gui v1 can leave border artifacts under a just-closed menu overlay
-            // (e.g. the "Value" pane title). Force a full repaint whenever menus close.
-            menu.MenuAllClosed += () => { Application.Top.SetNeedsDisplay(); Application.Refresh(); };
-            status.ColorScheme = Theme.Bar;
-            win.ColorScheme = Theme.Content;
-            tree.ColorScheme = Theme.Content;      // blue bar on the selected row
-            valueView.ColorScheme = Theme.Flat;    // TextView floods its area with Focus; Flat keeps the bg black
-            errorList.ColorScheme = Theme.Content;
-            divider.ColorScheme = Theme.Content;
-
-            // Per-pane focus indicator: the focused pane's title strip shows in the accent (TitleOn),
-            // the others in a readable dim (TitleOff). Wired to each inner view's focus events.
-            void WireTitle(View inner, Label title)
+                new Shortcut(Key.Q.WithCtrl, "Quit", () => app.RequestStop(top), null),
+                new Shortcut(new Key(), "F9 Menu", null, null), // hint only: a live F9 binding here would swallow the MenuBar's key
+                new Shortcut(Key.F6, "Focus", CycleFocus, null),
+            })
             {
-                inner.Enter += _ => { title.ColorScheme = Theme.TitleOn;  title.SetNeedsDisplay(); };
-                inner.Leave += _ => { title.ColorScheme = Theme.TitleOff; title.SetNeedsDisplay(); };
-            }
-            WireTitle(tree, treeTitle);
-            WireTitle(valueView, valueTitle);
-            WireTitle(errorList, errorTitle);
-            treeTitle.ColorScheme  = Theme.TitleOn;   // tree takes initial focus
-            valueTitle.ColorScheme = Theme.TitleOff;
-            errorTitle.ColorScheme = Theme.TitleOff;
-
-            // Solid backdrop behind menu/window/status so the terminal's own background can't leak
-            // through unpainted margins. Terminal.Gui v1 has no transparent color, and the MenuBar
-            // in particular doesn't paint its full row; without this, a light terminal shows through
-            // the gaps. Added first => drawn behind everything.
-            var background = new Background
-            {
-                X = 0, Y = 0, Width = Dim.Fill(), Height = Dim.Fill(), ColorScheme = Theme.Content,
+                X = 0, Y = Pos.AnchorEnd(), Width = Dim.Fill(),
             };
-            top.Add(background, menu, win, status);
+            // Bind the actionable shortcuts application-wide so ^Q/F6 work from any pane.
+            foreach (var v in status.SubViews)
+                if (v is Shortcut sc && sc.Action != null) sc.BindKeyToApplication = true;
+
+            // Dark theme on the chrome; panes inherit Content from the top view.
+            menu.SetScheme(Theme.Bar);
+            status.SetScheme(Theme.Bar);
+            valueView.SetScheme(Theme.Flat); // TextView paints its whole area with Focus; Flat keeps the bg dark
+
+            top.Add(menu, tree, valueView, errorList, status);
             tree.SetFocus();
-            Application.Run();
-            Application.Shutdown();
-            return 0;
+            return new Ui
+            {
+                App = app, Top = top, Menu = menu,
+                Tree = tree, ValueView = valueView, ErrorList = errorList, Errors = errors,
+            };
         }
 
         // --------------------------------------------------------------------
@@ -349,7 +341,7 @@ namespace Fux
                         yield return c;
         }
 
-        private static string GetLabel(XmlNode n)
+        internal static string GetLabel(XmlNode n)
         {
             switch (n.NodeType)
             {
@@ -364,7 +356,7 @@ namespace Fux
 
         // The "value" of a node for the right pane: attribute value, or an element's
         // simple text content (an element whose only children are text/CDATA).
-        private static string GetValue(XmlNode n)
+        internal static string GetValue(XmlNode n)
         {
             switch (n.NodeType)
             {
@@ -391,20 +383,6 @@ namespace Fux
 
         private static string OneLine(string s)
             => string.IsNullOrEmpty(s) ? "" : s.Replace("\r", " ").Replace("\n", " ").Trim();
-    }
-
-    // A solid backdrop. A plain View doesn't paint its background in Terminal.Gui v1, so we clear
-    // the whole area explicitly to the scheme background. Sits behind the menu/window/status to
-    // stop the terminal's own background leaking through unpainted margins (obvious on a light
-    // terminal, since v1 has no transparent color to fall back on).
-    internal sealed class Background : View
-    {
-        public override void Redraw(Rect bounds)
-        {
-            Driver.SetAttribute(ColorScheme.Normal);
-            Clear();
-            base.Redraw(bounds);
-        }
     }
 
     // Minimal service container: the engine only asks the site for the Settings service.

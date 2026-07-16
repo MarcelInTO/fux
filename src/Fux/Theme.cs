@@ -1,81 +1,71 @@
-using Terminal.Gui;
+using Terminal.Gui.Drawing;
 
 namespace Fux
 {
-    // A muted, Solarized-Dark-flavored theme. Terminal.Gui v1 ColorSchemes are 16-color
-    // (no TrueColor in Attribute), so these use the ANSI color slots: on a terminal whose
-    // palette is Solarized Dark they render as the real Solarized tones; elsewhere they read
-    // as a clean black/dark-gray theme. Either way, no bright default-blue backgrounds.
-    //
-    //   Black    -> base03 (background)      DarkGray -> base02 (highlights/bars)
-    //   Gray     -> base0  (body text)       White    -> base1  (emphasis/selection)
-    //   Cyan/Yellow/Red -> Solarized accents
+    // Real Solarized Dark, pinned as TrueColor RGB (Terminal.Gui v2). Unlike the v1 theme —
+    // which could only name 16 ANSI palette *slots* and so shifted appearance with every
+    // terminal color scheme — these are absolute colors: the UI renders identically on any
+    // TrueColor terminal, light or dark.
     internal static class Theme
     {
-        private static Attribute A(Color fg, Color bg) => Attribute.Make(fg, bg);
-        // One attribute in every slot: for a FrameView border/title, which we recolor wholesale on
-        // focus, so it shouldn't matter whether the frame draws with Normal or Focus.
-        private static ColorScheme Mono(Attribute a)
-            => new ColorScheme { Normal = a, Focus = a, HotNormal = a, HotFocus = a, Disabled = a };
+        // Solarized palette (Ethan Schoonover)
+        private static readonly Color Base03 = new Color("#002b36"); // darkest background
+        private static readonly Color Base02 = new Color("#073642"); // highlighted background
+        private static readonly Color Base01 = new Color("#586e75"); // dim/secondary content
+        private static readonly Color Base0  = new Color("#839496"); // body text
+        private static readonly Color Base1  = new Color("#93a1a1"); // emphasized text
+        private static readonly Color Base3  = new Color("#fdf6e3"); // near-white (selection text)
+        private static readonly Color Yellow = new Color("#b58900");
+        private static readonly Color Red    = new Color("#dc322f");
+        private static readonly Color Blue   = new Color("#268bd2");
+        private static readonly Color Cyan   = new Color("#2aa198");
 
-        public static ColorScheme Content { get; private set; }
-        public static ColorScheme Bar { get; private set; }
-        public static ColorScheme Error { get; private set; }
-        public static ColorScheme Flat { get; private set; }
-        public static ColorScheme TitleOn { get; private set; }   // focused pane title strip
-        public static ColorScheme TitleOff { get; private set; }  // unfocused pane title strip
+        private static Attribute A(Color fg, Color bg) => new Attribute(fg, bg);
 
-        // Must run after Application.Init() — Attribute.Make needs the initialized driver.
-        public static void Apply()
+        // Content panes: body text on the darkest background; the selected row is a clearly
+        // visible near-white-on-blue bar; hotkeys pick up the yellow accent.
+        public static readonly Scheme Content = new Scheme
         {
-            Content = new ColorScheme
-            {
-                Normal    = A(Color.Gray,         Color.Black),     // base0 on base03
-                Focus     = A(Color.White,        Color.Blue),      // selection: white on the Solarized blue accent (a clearly visible bar)
-                HotNormal = A(Color.BrightYellow, Color.Black),     // hotkeys
-                HotFocus  = A(Color.BrightYellow, Color.Blue),
-                Disabled  = A(Color.DarkGray,     Color.Black),     // base01 on base03
-            };
-            Bar = new ColorScheme
-            {
-                Normal    = A(Color.White,        Color.DarkGray),  // menu/status bar
-                Focus     = A(Color.Black,        Color.Cyan),      // selected item: cyan accent
-                HotNormal = A(Color.BrightYellow, Color.DarkGray),
-                HotFocus  = A(Color.Black,        Color.Cyan),
-                Disabled  = A(Color.Gray,         Color.DarkGray),
-            };
-            Error = new ColorScheme
-            {
-                Normal    = A(Color.BrightRed,    Color.Black),
-                Focus     = A(Color.White,        Color.Red),
-                HotNormal = A(Color.BrightRed,    Color.Black),
-                HotFocus  = A(Color.White,        Color.Red),
-                Disabled  = A(Color.DarkGray,     Color.Black),
-            };
-            // For views that paint their WHOLE area with Focus (e.g. TextView) rather than just a
-            // selected row: keep the black background on focus so the pane doesn't flood with the
-            // selection color. Text brightens slightly instead.
-            Flat = new ColorScheme
-            {
-                Normal    = A(Color.Gray,         Color.Black),
-                Focus     = A(Color.White,        Color.Black),
-                HotNormal = A(Color.BrightYellow, Color.Black),
-                HotFocus  = A(Color.BrightYellow, Color.Black),
-                Disabled  = A(Color.DarkGray,     Color.Black),
-            };
-            // Pane title strips (tab-like): the active pane is black-on-cyan (an obvious highlighted
-            // tab), inactive panes are white-on-dark-gray (a clearly readable strip — not the
-            // near-invisible dark-on-dark of a plain dim foreground). Cyan (not the blue selection
-            // bar) so "active pane" reads distinctly from "selected row".
-            TitleOn  = Mono(A(Color.Black, Color.Cyan));
-            TitleOff = Mono(A(Color.White, Color.DarkGray));
+            Normal    = A(Base0,  Base03),
+            Focus     = A(Base3,  Blue),
+            HotNormal = A(Yellow, Base03),
+            HotFocus  = A(Yellow, Blue),
+            Disabled  = A(Base01, Base03),
+        };
 
-            // Apply globally so any view we don't touch explicitly still inherits the dark theme.
-            Colors.TopLevel = Content;
-            Colors.Base = Content;
-            Colors.Menu = Bar;
-            Colors.Dialog = Bar;
-            Colors.Error = Error;
-        }
+        // Menu + status bar chrome: emphasized text on the highlight background; the selected
+        // item is base03-on-cyan (cyan = "active" accent, distinct from the blue selection bar).
+        public static readonly Scheme Bar = new Scheme
+        {
+            Normal    = A(Base1,  Base02),
+            Focus     = A(Base03, Cyan),
+            HotNormal = A(Yellow, Base02),
+            HotFocus  = A(Base03, Cyan),
+            Disabled  = A(Base01, Base02),
+        };
+
+        // Error dialogs / accents.
+        public static readonly Scheme Error = new Scheme
+        {
+            Normal    = A(Red,    Base03),
+            Focus     = A(Base3,  Red),
+            HotNormal = A(Red,    Base03),
+            HotFocus  = A(Base3,  Red),
+            Disabled  = A(Base01, Base03),
+        };
+
+        // For views that paint their WHOLE area with Focus (e.g. TextView) rather than just a
+        // selected row: keep the dark background on focus so the pane doesn't flood with the
+        // selection color. Text brightens slightly instead. ReadOnly is pinned because v2
+        // otherwise derives it by dimming Normal — off the Solarized palette.
+        public static readonly Scheme Flat = new Scheme
+        {
+            Normal    = A(Base0,  Base03),
+            Focus     = A(Base1,  Base03),
+            HotNormal = A(Yellow, Base03),
+            HotFocus  = A(Yellow, Base03),
+            Disabled  = A(Base01, Base03),
+            ReadOnly  = A(Base0,  Base03),
+        };
     }
 }
