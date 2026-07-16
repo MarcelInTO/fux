@@ -173,6 +173,7 @@ namespace Fux
                 new MenuBarItem("_Edit", new View[]
                 {
                     new MenuItem("Edit _Value", "F2", () => ToggleValueEdit(ui), new Key()),
+                    new MenuItem("Re_name…", "^R", () => StartRename(ui), new Key()),
                     new MenuItem("_Undo", "^Z", () => DoUndo(ui), new Key()),
                     new MenuItem("_Redo", "^Y", () => DoRedo(ui), new Key()),
                 }),
@@ -302,16 +303,27 @@ namespace Fux
             // The status F9 entry is a hint only, with no live key, so it can't race the MenuBar
             // for the keypress. Alt+F/Alt+H also work when the terminal sends Option as Meta —
             // off by default on macOS, so F9 is the reliable path.
+            // ^Z/^Y/F5 have no status-bar slot (no room at 100 cols; they stay discoverable
+            // in the Edit/View menus) and can't be bound elsewhere: a menu-item Key does NOT
+            // bind app-wide in v2, and an invisible Shortcut doesn't dispatch (drill-proven).
+            // Handle them centrally, pre-routing. While a value edit is live, ^Z/^Y fall
+            // through so the TextView keeps its own undo machinery.
+            app.Keyboard.KeyDown += (s, e) =>
+            {
+                if (e.Handled || ui == null) return;
+                if (!ui.Editing && e.KeyCode == Key.Z.WithCtrl.KeyCode) { DoUndo(ui); e.Handled = true; }
+                else if (!ui.Editing && e.KeyCode == Key.Y.WithCtrl.KeyCode) { DoRedo(ui); e.Handled = true; }
+                else if (e.KeyCode == Key.F5.KeyCode) { ToggleTheme(ui); e.Handled = true; }
+            };
+
             var status = new StatusBar(new Shortcut[]
             {
                 new Shortcut(Key.Q.WithCtrl, "Quit", () => RequestQuit(ui), null),
                 new Shortcut(new Key(), "F9 Menu", null, null), // hint only: a live F9 binding here would swallow the MenuBar's key
                 new Shortcut(Key.F6, "Focus", CycleFocus, null),
                 new Shortcut(Key.F2, "Edit", () => ToggleValueEdit(ui), null),
+                new Shortcut(Key.R.WithCtrl, "Rename", () => StartRename(ui), null),
                 new Shortcut(Key.S.WithCtrl, "Save", () => SaveFile(ui), null),
-                new Shortcut(Key.Z.WithCtrl, "Undo", () => DoUndo(ui), null),
-                new Shortcut(Key.Y.WithCtrl, "Redo", () => DoRedo(ui), null),
-                new Shortcut(Key.F5, "Theme", () => ToggleTheme(ui), null),
             })
             {
                 X = 0, Y = Pos.AnchorEnd(), Width = Dim.Fill(),
@@ -416,6 +428,53 @@ namespace Fux
 
 #pragma warning restore CS0618
 
+        // ^R renames the selected element/attribute/PI via a modal prompt. The commit path
+        // is TryRename (headless-testable); the dialog is only the text collector.
+        private static void StartRename(Ui ui)
+        {
+            if (ui == null || ui.Editing) return;
+            var n = ui.Tree.SelectedObject;
+            if (n == null || !RenameNode.CanRename(n)) return;
+
+            var field = new TextField { X = 1, Y = 1, Width = Dim.Fill(1), Text = n.Name };
+            var d = new Dialog
+            {
+                Title = $"Rename {n.NodeType}",
+                Width = 46, Height = 8,
+            };
+            d.Add(new Label { X = 1, Y = 0, Text = "New name:" }, field);
+            d.AddButton(new Button { Text = "Cancel" }); // Result 0
+            d.AddButton(new Button { Text = "OK" });     // Result 1; last added = default (Enter)
+            field.SetFocus();
+            field.MoveEnd(); // type to append; cursor at 0 would prepend into the prefilled name
+            ui.App.Run(d, null);
+            bool ok = d.Result is 1;
+            var newName = field.Text;
+            d.Dispose();
+            if (!ok || newName == n.Name) return;
+
+            var err = TryRename(ui, n, newName);
+            if (err != null)
+                MessageBox.Query(ui.App, "Rename failed", err, "OK");
+        }
+
+        // Push a rename through the undo stack. Returns null on success, or the reason the
+        // name was rejected (RenameNode's constructor validates via XmlConvert.VerifyName).
+        internal static string TryRename(Ui ui, XmlNode node, string newName)
+        {
+            RenameNode cmd;
+            try
+            {
+                cmd = new RenameNode(node, newName);
+            }
+            catch (Exception ex) when (ex is XmlException || ex is ArgumentException)
+            {
+                return ex.Message;
+            }
+            ui.Undo.Push(cmd);
+            return null;
+        }
+
         private static void DoUndo(Ui ui)
         {
             if (ui == null || ui.Editing) return;
@@ -435,15 +494,36 @@ namespace Fux
         {
             if (ui == null) return;
             if ((cmd as INodeCommand)?.Node is XmlNode node)
-            {
-                ui.Tree.EnsureVisible(node); // expands ancestors if the node got hidden
-                ui.Tree.RefreshObject(node, false);
-                ui.Tree.SelectedObject = node;
-            }
+                RefreshTreeFor(ui, node);
             var sel = ui.Tree.SelectedObject;
             ui.ValueView.Text = sel == null ? "" : GetValue(sel) ?? "";
             Revalidate(ui);
             UpdateTitle(ui);
+        }
+
+        // Rebuild the tree around a (possibly brand-new) node. Commands that rename or
+        // restructure swap node instances, so refresh is anchored at the parent — which
+        // survives every command — rather than at the node itself; a structural change at
+        // the document root rebinds the root object outright.
+        private static void RefreshTreeFor(Ui ui, XmlNode node)
+        {
+            var parent = node is XmlAttribute a ? (XmlNode)a.OwnerElement : node.ParentNode;
+            if (parent is XmlElement pe)
+            {
+                ui.Tree.RefreshObject(pe, false);
+            }
+            else
+            {
+                ui.Tree.ClearObjects();
+                var root = _model.Document?.DocumentElement;
+                if (root != null)
+                {
+                    ui.Tree.AddObject(root);
+                    ui.Tree.ExpandAll();
+                }
+            }
+            ui.Tree.EnsureVisible(node);
+            ui.Tree.SelectedObject = node;
         }
 
         // Re-run validation over the (possibly edited) DOM and refresh the error pane.

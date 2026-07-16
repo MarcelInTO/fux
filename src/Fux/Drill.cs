@@ -134,7 +134,88 @@ namespace Fux
                 Console.Error.WriteLine("  (no editable node; editing drill not exercised)");
             }
 
-            // --- 8. F9 focuses the menu bar; ^Q requests stop.
+            // --- 8. Rename: TryRename drives the same command path as the ^R dialog (the
+            // modal itself can't run headless — a nested Run would block the injector).
+            // Renames swap node instances, so these pin selection identity, attribute
+            // order, namespace auto-generation and the root-rebind path; each case undoes
+            // itself so the block ends where it started (then saves to come out clean).
+            var doc = Program.Model.Document;
+            var owner = doc?.SelectSingleNode("//*[@title]") as XmlElement;
+            if (owner != null)
+            {
+                var attr = owner.GetAttributeNode("title");
+                int pos = IndexOfAttr(owner, attr);
+                Check(Program.TryRename(ui, attr, "role") == null, "attribute rename accepted");
+                var renamed = owner.GetAttributeNode("role");
+                Check(renamed != null && renamed.Value == "Wizard", "attribute keeps its value");
+                Check(IndexOfAttr(owner, renamed) == pos, "attribute keeps its position");
+                Check(ReferenceEquals(ui.Tree.SelectedObject, renamed), "tree selects the new attribute instance");
+                app.Keyboard.RaiseKeyDownEvent(Key.Z.WithCtrl);
+                var back = owner.GetAttributeNode("title");
+                Check(ReferenceEquals(back, attr) && back.Value == "Wizard" && IndexOfAttr(owner, back) == pos,
+                    "undo restores the original attribute in place");
+                app.Keyboard.RaiseKeyDownEvent(Key.Y.WithCtrl);
+                Check(owner.GetAttributeNode("role") != null, "redo re-applies the rename");
+                app.Keyboard.RaiseKeyDownEvent(Key.Z.WithCtrl);
+            }
+            else
+            {
+                Console.Error.WriteLine("  (no @title attribute; attribute rename not exercised)");
+            }
+
+            var city = doc?.SelectSingleNode("//*[local-name()='City']") as XmlElement;
+            if (city != null)
+            {
+                var parent = city.ParentNode;
+                var text = city.InnerText; // MoveContent empties the detached original
+                Check(Program.TryRename(ui, city, "Town") == null, "element rename accepted");
+                var town = ui.Tree.SelectedObject as XmlElement;
+                Check(town != null && town.LocalName == "Town" && !ReferenceEquals(town, city),
+                    "tree selects the new element instance");
+                Check(town != null && town.InnerText == text && town.NamespaceURI == city.NamespaceURI,
+                    "element keeps content and namespace");
+                app.LayoutAndDraw(true);
+                Check(ScreenText(app).Contains("<Town>"), "tree repaints the renamed element");
+                app.Keyboard.RaiseKeyDownEvent(Key.Z.WithCtrl);
+                Check(city.ParentNode != null && ReferenceEquals(parent, city.ParentNode) && city.InnerText == text,
+                    "undo restores the original element with its content");
+
+                var street = doc.SelectSingleNode("//*[local-name()='Street']") as XmlElement;
+                Check(Program.TryRename(ui, street, "z:Street") == null, "prefixed rename accepted");
+                var zs = ui.Tree.SelectedObject as XmlElement;
+                Check(zs != null && zs.Prefix == "z" && zs.NamespaceURI == "uri:1",
+                    "unknown prefix gets a generated namespace");
+                Check(zs != null && zs.GetAttribute("xmlns:z") == "uri:1", "xmlns:z declaration rides the element");
+                app.Keyboard.RaiseKeyDownEvent(Key.Z.WithCtrl);
+                Check(street.ParentNode != null && street.Prefix == "" && street.GetAttribute("xmlns:z") == "",
+                    "undo removes the generated declaration with the element");
+            }
+            else
+            {
+                Console.Error.WriteLine("  (no City element; element rename not exercised)");
+            }
+
+            if (doc?.DocumentElement != null)
+            {
+                var top2 = ui.Undo.Peek();
+                Check(Program.TryRename(ui, doc.DocumentElement, "not a name") != null,
+                    "invalid name is rejected with a message");
+                Check(ReferenceEquals(ui.Undo.Peek(), top2), "rejected rename pushes nothing");
+
+                var oldRoot = doc.DocumentElement;
+                Check(Program.TryRename(ui, oldRoot, "Staff") == null, "root rename accepted");
+                Check(doc.DocumentElement.LocalName == "Staff" &&
+                      ReferenceEquals(ui.Tree.SelectedObject, doc.DocumentElement), "tree rebinds to the new root");
+                app.LayoutAndDraw(true);
+                Check(ScreenText(app).Contains("<Staff>"), "tree repaints the renamed root");
+                app.Keyboard.RaiseKeyDownEvent(Key.Z.WithCtrl);
+                Check(ReferenceEquals(doc.DocumentElement, oldRoot), "undo restores the original root");
+
+                app.Keyboard.RaiseKeyDownEvent(Key.S.WithCtrl); // undo churn marks dirty; end clean
+                Check(!Program.Model.Dirty, "save clears dirty after the rename drill");
+            }
+
+            // --- 9. F9 focuses the menu bar; ^Q requests stop.
             bool f9Handled = app.Keyboard.RaiseKeyDownEvent(Key.F9);
             app.RaiseIteration(); // popover show is processed by the main loop
             app.LayoutAndDraw(true);
@@ -215,6 +296,13 @@ namespace Fux
                 sb.Append('\n');
             }
             return sb.ToString();
+        }
+
+        private static int IndexOfAttr(XmlElement owner, XmlAttribute a)
+        {
+            for (int i = 0; i < owner.Attributes.Count; i++)
+                if (ReferenceEquals(owner.Attributes[i], a)) return i;
+            return -1;
         }
 
         // First node in the displayed tree whose value fux lets you edit (DFS in tree order,

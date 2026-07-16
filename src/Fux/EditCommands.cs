@@ -1,3 +1,5 @@
+using System;
+using System.Collections.Generic;
 using System.Xml;
 using XmlNotepad;
 
@@ -67,6 +69,153 @@ namespace Fux
                 default:
                     return false;
             }
+        }
+    }
+
+    // Pure-DOM rename for elements, attributes and PIs. The DOM can rename none of them
+    // in place, so each is the upstream swap dance (XmlNotepad/Commands.cs:
+    // EditElementName / EditAttributeName / EditProcessingInstructionName): create a
+    // replacement, migrate content, swap in the parent — minus the WinForms view sync.
+    // Node returns whichever instance is live, so the tree reselects correctly.
+    //
+    // The constructor parses/validates the name (XmlConvert.VerifyName inside ParseName
+    // throws on garbage — callers surface that, nothing is pushed). A prefixed name with
+    // no in-scope namespace gets an auto-generated xmlns:prefix declaration, upstream
+    // style: on the renamed element itself, or on the owner element for an attribute.
+    internal sealed class RenameNode : Command, INodeCommand
+    {
+        private readonly XmlNode _old;
+        private readonly XmlName _name;   // parsed element/attribute name (null for PI)
+        private readonly string _piTarget;
+        private XmlNode _new;             // replacement, created in Do
+        private XmlNode _parent;          // parent node / owner element
+        private XmlAttribute _nsDecl;     // auto-generated xmlns:prefix, if needed
+        private XmlNode _current;
+
+        public RenameNode(XmlNode node, string newName)
+        {
+            _old = _current = node;
+            switch (node.NodeType)
+            {
+                case XmlNodeType.Element:
+                    _name = XmlHelpers.ParseName(node, newName, XmlNodeType.Element);
+                    break;
+                case XmlNodeType.Attribute:
+                    _name = XmlHelpers.ParseName(((XmlAttribute)node).OwnerElement, newName, XmlNodeType.Attribute);
+                    break;
+                case XmlNodeType.ProcessingInstruction:
+                    XmlConvert.VerifyName(newName);
+                    _piTarget = newName;
+                    break;
+                default:
+                    throw new ArgumentException($"cannot rename a {node.NodeType} node");
+            }
+        }
+
+        internal static bool CanRename(XmlNode n)
+            => n != null && (n.NodeType == XmlNodeType.Element || n.NodeType == XmlNodeType.Attribute ||
+                             n.NodeType == XmlNodeType.ProcessingInstruction);
+
+        public XmlNode Node => _current;
+        public override string Name => "Rename";
+
+        public override bool IsNoop
+        {
+            get
+            {
+                if (_old is XmlProcessingInstruction pi) return pi.Target == _piTarget;
+                return _old.LocalName == _name.LocalName && _old.Prefix == _name.Prefix &&
+                       _old.NamespaceURI == (_name.NamespaceUri ?? "");
+            }
+        }
+
+        public override void Do()
+        {
+            var doc = _old.OwnerDocument;
+            switch (_old.NodeType)
+            {
+                case XmlNodeType.Element:
+                    _parent = _old.ParentNode;
+                    if (XmlHelpers.MissingNamespace(_name))
+                        _nsDecl = XmlHelpers.GenerateNamespaceDeclaration((XmlElement)_old, _name); // also assigns _name.NamespaceUri
+                    _new = doc.CreateElement(_name.Prefix, _name.LocalName, _name.NamespaceUri);
+                    break;
+                case XmlNodeType.Attribute:
+                    _parent = ((XmlAttribute)_old).OwnerElement;
+                    if (XmlHelpers.MissingNamespace(_name))
+                        _nsDecl = XmlHelpers.GenerateNamespaceDeclaration((XmlElement)_parent, _name);
+                    var na = doc.CreateAttribute(_name.Prefix, _name.LocalName, _name.NamespaceUri);
+                    na.Value = _old.Value;
+                    _new = na;
+                    break;
+                case XmlNodeType.ProcessingInstruction:
+                    _parent = _old.ParentNode;
+                    _new = doc.CreateProcessingInstruction(_piTarget, ((XmlProcessingInstruction)_old).Data);
+                    break;
+            }
+            Redo();
+        }
+
+        public override void Redo()
+        {
+            switch (_old.NodeType)
+            {
+                case XmlNodeType.Element:
+                    MoveContent((XmlElement)_old, (XmlElement)_new);
+                    _parent.ReplaceChild(_new, _old);
+                    if (_nsDecl != null) ((XmlElement)_new).SetAttributeNode(_nsDecl);
+                    break;
+                case XmlNodeType.Attribute:
+                    var owner = (XmlElement)_parent;
+                    owner.Attributes.InsertBefore((XmlAttribute)_new, (XmlAttribute)_old); // keep position
+                    owner.RemoveAttributeNode((XmlAttribute)_old);
+                    if (_nsDecl != null) owner.SetAttributeNode(_nsDecl);
+                    break;
+                case XmlNodeType.ProcessingInstruction:
+                    _parent.InsertBefore(_new, _old);
+                    _parent.RemoveChild(_old);
+                    break;
+            }
+            _current = _new;
+        }
+
+        public override void Undo()
+        {
+            switch (_old.NodeType)
+            {
+                case XmlNodeType.Element:
+                    if (_nsDecl != null) ((XmlElement)_new).RemoveAttributeNode(_nsDecl); // before content moves back
+                    MoveContent((XmlElement)_new, (XmlElement)_old);
+                    _parent.ReplaceChild(_old, _new);
+                    break;
+                case XmlNodeType.Attribute:
+                    var owner = (XmlElement)_parent;
+                    if (_nsDecl != null) owner.RemoveAttributeNode(_nsDecl);
+                    owner.Attributes.InsertBefore((XmlAttribute)_old, (XmlAttribute)_new);
+                    owner.RemoveAttributeNode((XmlAttribute)_new);
+                    break;
+                case XmlNodeType.ProcessingInstruction:
+                    _parent.InsertBefore(_old, _new);
+                    _parent.RemoveChild(_new);
+                    break;
+            }
+            _current = _old;
+        }
+
+        // Migrate specified attributes and all children (upstream EditElementName.Move).
+        private static void MoveContent(XmlElement from, XmlElement to)
+        {
+            var move = new List<XmlAttribute>();
+            foreach (XmlAttribute a in from.Attributes)
+                if (a.Specified)
+                    move.Add(a);
+            foreach (var a in move)
+            {
+                from.Attributes.Remove(a);
+                to.Attributes.Append(a);
+            }
+            while (from.HasChildNodes)
+                to.AppendChild(from.FirstChild);
         }
     }
 }
