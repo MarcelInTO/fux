@@ -162,6 +162,7 @@ namespace Fux
             public UndoManager Undo;
             public bool Editing;     // value-pane edit mode (F2 commits, Esc cancels)
             public XmlNode EditNode; // node whose value is being edited
+            public int ModalDepth;   // >0 while a dialog/message box runs: app-wide keys stay inert
         }
 
         // Drill introspection: the engine instance behind the UI.
@@ -200,6 +201,8 @@ namespace Fux
                 {
                     new MenuItem("Edit _Value", "F2", () => ToggleValueEdit(ui), new Key()),
                     new MenuItem("Re_name…", "^R", () => StartRename(ui), new Key()),
+                    new MenuItem("_Insert…", "^N", () => StartInsert(ui), new Key()),
+                    new MenuItem("_Delete", "Del", () => DeleteSelected(ui), new Key()),
                     new MenuItem("_Undo", "^Z", () => DoUndo(ui), new Key()),
                     new MenuItem("_Redo", "^Y", () => DoRedo(ui), new Key()),
                 }),
@@ -210,7 +213,7 @@ namespace Fux
                 new MenuBarItem("_Help", new View[]
                 {
                     new MenuItem("_About", "", () =>
-                        MessageBox.Query(app, "About fux", "A terminal XML editor over the XmlNotepad engine.", "OK")),
+                        ModalQuery(ui, "About fux", "A terminal XML editor over the XmlNotepad engine.", "OK")),
                 }),
             })
             {
@@ -329,16 +332,18 @@ namespace Fux
             // The status F9 entry is a hint only, with no live key, so it can't race the MenuBar
             // for the keypress. Alt+F/Alt+H also work when the terminal sends Option as Meta —
             // off by default on macOS, so F9 is the reliable path.
-            // ^Z/^Y/F5 have no status-bar slot (no room at 100 cols; they stay discoverable
-            // in the Edit/View menus) and can't be bound elsewhere: a menu-item Key does NOT
-            // bind app-wide in v2, and an invisible Shortcut doesn't dispatch (drill-proven).
-            // Handle them centrally, pre-routing. While a value edit is live, ^Z/^Y fall
-            // through so the TextView keeps its own undo machinery.
+            // ^Z/^Y/F5/Del have no status-bar slot (no room at 100 cols; they stay
+            // discoverable in the Edit/View menus) and can't be bound elsewhere: a menu-item
+            // Key does NOT bind app-wide in v2, and an invisible Shortcut doesn't dispatch
+            // (drill-proven). Handle them centrally, pre-routing. Inert while a modal dialog
+            // is open (Del in a dialog's text field must not delete the tree node!), and
+            // while a value edit is live ^Z/^Y/Del fall through to the TextView's own keys.
             app.Keyboard.KeyDown += (s, e) =>
             {
-                if (e.Handled || ui == null) return;
+                if (e.Handled || ui == null || ui.ModalDepth > 0) return;
                 if (!ui.Editing && e.KeyCode == Key.Z.WithCtrl.KeyCode) { DoUndo(ui); e.Handled = true; }
                 else if (!ui.Editing && e.KeyCode == Key.Y.WithCtrl.KeyCode) { DoRedo(ui); e.Handled = true; }
+                else if (!ui.Editing && e.KeyCode == Key.DeleteChar.KeyCode) { DeleteSelected(ui); e.Handled = true; }
                 else if (e.KeyCode == Key.F5.KeyCode) { ToggleTheme(ui); e.Handled = true; }
             };
 
@@ -349,6 +354,7 @@ namespace Fux
                 new Shortcut(Key.F6, "Focus", CycleFocus, null),
                 new Shortcut(Key.F2, "Edit", () => ToggleValueEdit(ui), null),
                 new Shortcut(Key.R.WithCtrl, "Rename", () => StartRename(ui), null),
+                new Shortcut(Key.N.WithCtrl, "Insert", () => StartInsert(ui), null),
                 new Shortcut(Key.S.WithCtrl, "Save", () => SaveFile(ui), null),
             })
             {
@@ -454,6 +460,23 @@ namespace Fux
 
 #pragma warning restore CS0618
 
+        // MessageBox/dialog wrappers: ModalDepth keeps the app-wide key handler inert while
+        // a modal runs (otherwise Del in a dialog's text field would delete the tree node).
+        private static int? ModalQuery(Ui ui, string title, string message, params string[] buttons)
+        {
+            if (ui == null) return null;
+            ui.ModalDepth++;
+            try { return MessageBox.Query(ui.App, title, message, buttons); }
+            finally { ui.ModalDepth--; }
+        }
+
+        private static void RunModal(Ui ui, Dialog d)
+        {
+            ui.ModalDepth++;
+            try { ui.App.Run(d, null); }
+            finally { ui.ModalDepth--; }
+        }
+
         // ^R renames the selected element/attribute/PI via a modal prompt. The commit path
         // is TryRename (headless-testable); the dialog is only the text collector.
         private static void StartRename(Ui ui)
@@ -473,7 +496,7 @@ namespace Fux
             d.AddButton(new Button { Text = "OK" });     // Result 1; last added = default (Enter)
             field.SetFocus();
             field.MoveEnd(); // type to append; cursor at 0 would prepend into the prefilled name
-            ui.App.Run(d, null);
+            RunModal(ui, d);
             bool ok = d.Result is 1;
             var newName = field.Text;
             d.Dispose();
@@ -481,7 +504,93 @@ namespace Fux
 
             var err = TryRename(ui, n, newName);
             if (err != null)
-                MessageBox.Query(ui.App, "Rename failed", err, "OK");
+                ModalQuery(ui, "Rename failed", err, "OK");
+        }
+
+        // ^N inserts a new node relative to the selection. The dialog collects kind,
+        // position and name; TryInsert (headless-testable) is the commit path.
+        private static void StartInsert(Ui ui)
+        {
+            if (ui == null || ui.Editing) return;
+            var n = ui.Tree.SelectedObject;
+            if (n == null) return;
+
+            var kindSel = new OptionSelector
+            {
+                X = 1, Y = 2,
+                Labels = new[] { "Element", "Attribute", "Comment", "Processing instr." },
+                Value = 0,
+            };
+            var posSel = new OptionSelector
+            {
+                X = 26, Y = 2,
+                Labels = new[] { "Child", "Before", "After" },
+                Value = 0,
+            };
+            var field = new TextField { X = 1, Y = 1, Width = Dim.Fill(1) };
+            var d = new Dialog
+            {
+                Title = $"Insert at {GetLabel(n)}",
+                Width = 50, Height = 12,
+            };
+            d.Add(new Label { X = 1, Y = 0, Text = "Name (element/attribute/PI):" }, field, kindSel, posSel);
+            d.AddButton(new Button { Text = "Cancel" }); // Result 0
+            d.AddButton(new Button { Text = "OK" });     // Result 1; last added = default (Enter)
+            field.SetFocus();
+            RunModal(ui, d);
+            bool ok = d.Result is 1;
+            var kind = (InsertKind)(kindSel.Value ?? 0);
+            var pos = (InsertPos)(posSel.Value ?? 0);
+            var name = field.Text;
+            d.Dispose();
+            if (!ok) return;
+
+            var err = TryInsert(ui, n, kind, pos, name);
+            if (err != null)
+                ModalQuery(ui, "Insert failed", err, "OK");
+        }
+
+        // Push an insert through the undo stack. Returns null on success, else the reason.
+        internal static string TryInsert(Ui ui, XmlNode anchor, InsertKind kind, InsertPos pos, string name)
+        {
+            InsertNewNode cmd;
+            try
+            {
+                cmd = new InsertNewNode(anchor, kind, pos, name);
+            }
+            catch (Exception ex) when (ex is XmlException || ex is ArgumentException)
+            {
+                return ex.Message;
+            }
+            ui.Undo.Push(cmd);
+            return null;
+        }
+
+        // Del deletes the selected node (undoable, so no confirmation).
+        private static void DeleteSelected(Ui ui)
+        {
+            if (ui == null || ui.Editing) return;
+            var n = ui.Tree.SelectedObject;
+            if (n == null) return;
+            var err = TryDelete(ui, n);
+            if (err != null)
+                ModalQuery(ui, "Delete failed", err, "OK");
+        }
+
+        // Push a delete through the undo stack. Returns null on success, else the reason.
+        internal static string TryDelete(Ui ui, XmlNode node)
+        {
+            DeleteNode cmd;
+            try
+            {
+                cmd = new DeleteNode(node);
+            }
+            catch (ArgumentException ex)
+            {
+                return ex.Message;
+            }
+            ui.Undo.Push(cmd);
+            return null;
         }
 
         // Push a rename through the undo stack. Returns null on success, or the reason the
@@ -580,7 +689,7 @@ namespace Fux
             }
             catch (Exception ex)
             {
-                MessageBox.Query(ui.App, "Save failed", ex.Message, "OK");
+                ModalQuery(ui, "Save failed", ex.Message, "OK");
             }
             UpdateTitle(ui);
         }
@@ -591,7 +700,7 @@ namespace Fux
             if (_model.Dirty)
             {
                 var name = _model.FileName == null ? "this document" : System.IO.Path.GetFileName(_model.FileName);
-                int choice = MessageBox.Query(ui.App, "Unsaved changes", $"Save changes to {name}?", "Save", "Discard", "Cancel") ?? 2;
+                int choice = ModalQuery(ui, "Unsaved changes", $"Save changes to {name}?", "Save", "Discard", "Cancel") ?? 2;
                 if (choice == 0) { SaveFile(ui); if (_model.Dirty) return; } // save failed → stay
                 else if (choice != 1) return; // Cancel (or dismissed)
             }

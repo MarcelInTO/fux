@@ -216,7 +216,105 @@ namespace Fux
                 Check(!Program.Model.Dirty, "save clears dirty after the rename drill");
             }
 
-            // --- 9. F9 focuses the menu bar; ^Q requests stop.
+            // --- 9. Insert & delete: TryInsert/TryDelete drive the same command paths as
+            // the ^N dialog and the Del key. Fixture-agnostic: anchors come from whatever
+            // document is loaded. Each case undoes itself; a final save comes out clean.
+            var root9 = doc?.DocumentElement;
+            if (root9 != null)
+            {
+                int kids = root9.ChildNodes.Count;
+                Check(Program.TryInsert(ui, root9, InsertKind.Element, InsertPos.Child, "fuxnew") == null,
+                    "element child insert accepted");
+                var fresh = root9.LastChild as XmlElement;
+                // compare against the LIVE default namespace: an earlier drill section may
+                // have edited the xmlns attribute value (baked element URIs don't follow)
+                Check(fresh != null && fresh.LocalName == "fuxnew" && fresh.NamespaceURI == root9.GetNamespaceOfPrefix(""),
+                    "new element lands last, inheriting the in-scope default namespace");
+                Check(fresh != null && ReferenceEquals(ui.Tree.SelectedObject, fresh), "tree selects the inserted element");
+                app.LayoutAndDraw(true);
+                Check(ScreenText(app).Contains("<fuxnew>"), "tree repaints the inserted element");
+                app.Keyboard.RaiseKeyDownEvent(Key.Z.WithCtrl);
+                Check(root9.ChildNodes.Count == kids && fresh.ParentNode == null, "undo removes the inserted element");
+                app.Keyboard.RaiseKeyDownEvent(Key.Y.WithCtrl);
+                Check(ReferenceEquals(root9.LastChild, fresh), "redo restores it at the same spot");
+                app.Keyboard.RaiseKeyDownEvent(Key.Z.WithCtrl);
+
+                // sibling position: insert before the first element child
+                XmlElement firstChild = null;
+                foreach (XmlNode c in root9.ChildNodes)
+                    if (c is XmlElement fe) { firstChild = fe; break; }
+                if (firstChild != null)
+                {
+                    Check(Program.TryInsert(ui, firstChild, InsertKind.Element, InsertPos.Before, "fuxbefore") == null,
+                        "sibling insert accepted");
+                    var sib = ui.Tree.SelectedObject as XmlElement;
+                    Check(sib != null && ReferenceEquals(sib.NextSibling, firstChild), "Before lands directly before the anchor");
+                    app.Keyboard.RaiseKeyDownEvent(Key.Z.WithCtrl);
+                }
+
+                Check(Program.TryInsert(ui, root9, InsertKind.Attribute, InsertPos.Child, "fuxattr") == null,
+                    "attribute insert accepted");
+                Check(root9.HasAttribute("fuxattr"), "attribute exists on the element");
+                app.Keyboard.RaiseKeyDownEvent(Key.Z.WithCtrl);
+                Check(!root9.HasAttribute("fuxattr"), "undo removes the attribute");
+
+                Check(Program.TryInsert(ui, root9, InsertKind.Comment, InsertPos.Child, null) == null,
+                    "comment insert accepted (no name needed)");
+                Check(root9.LastChild is XmlComment, "comment lands as last child");
+                app.Keyboard.RaiseKeyDownEvent(Key.Z.WithCtrl);
+
+                Check(Program.TryInsert(ui, root9, InsertKind.Pi, InsertPos.Child, "fuxpi") == null,
+                    "processing instruction insert accepted");
+                Check(root9.LastChild is XmlProcessingInstruction lastPi && lastPi.Target == "fuxpi",
+                    "PI lands as last child with its target");
+                app.Keyboard.RaiseKeyDownEvent(Key.Z.WithCtrl);
+
+                // rejections: each returns a message and pushes nothing
+                var top9 = ui.Undo.Peek();
+                Check(Program.TryInsert(ui, root9, InsertKind.Element, InsertPos.Before, "x") != null,
+                    "sibling of the document root is rejected");
+                Check(Program.TryInsert(ui, root9, InsertKind.Element, InsertPos.Child, "not a name") != null,
+                    "invalid element name is rejected");
+                Check(Program.TryInsert(ui, root9, InsertKind.Element, InsertPos.Child, "") != null,
+                    "empty element name is rejected");
+                if (root9.Attributes.Count > 0)
+                    Check(Program.TryInsert(ui, root9, InsertKind.Attribute, InsertPos.Child, root9.Attributes[0].Name) != null,
+                        "duplicate attribute name is rejected");
+                Check(Program.TryDelete(ui, root9) != null, "deleting the document root is rejected");
+                Check(ReferenceEquals(ui.Undo.Peek(), top9), "rejected operations push nothing");
+
+                // delete an element via the Del key path (central handler), undo restores in place
+                if (firstChild != null)
+                {
+                    var parent9 = firstChild.ParentNode;
+                    var successor = firstChild.NextSibling;
+                    ui.Tree.SelectedObject = firstChild;
+                    ui.Tree.SetFocus();
+                    app.Keyboard.RaiseKeyDownEvent(Key.DeleteChar);
+                    Check(firstChild.ParentNode == null, "Del removes the selected element");
+                    Check(ReferenceEquals(ui.Tree.SelectedObject, parent9), "selection falls back to the parent");
+                    app.Keyboard.RaiseKeyDownEvent(Key.Z.WithCtrl);
+                    Check(ReferenceEquals(firstChild.ParentNode, parent9) && ReferenceEquals(firstChild.NextSibling, successor),
+                        "undo restores the element in its exact position");
+                    Check(ReferenceEquals(ui.Tree.SelectedObject, firstChild), "undo reselects the restored element");
+                }
+
+                // delete an attribute, undo restores it in place
+                if (root9.Attributes.Count > 0)
+                {
+                    var victim = root9.Attributes[0];
+                    int vpos = IndexOfAttr(root9, victim);
+                    Check(Program.TryDelete(ui, victim) == null, "attribute delete accepted");
+                    Check(victim.OwnerElement == null, "attribute is detached");
+                    app.Keyboard.RaiseKeyDownEvent(Key.Z.WithCtrl);
+                    Check(ReferenceEquals(root9.Attributes[vpos], victim), "undo restores the attribute in place");
+                }
+
+                app.Keyboard.RaiseKeyDownEvent(Key.S.WithCtrl); // undo churn marks dirty; end clean
+                Check(!Program.Model.Dirty, "save clears dirty after the insert/delete drill");
+            }
+
+            // --- 10. F9 focuses the menu bar; ^Q requests stop.
             bool f9Handled = app.Keyboard.RaiseKeyDownEvent(Key.F9);
             app.RaiseIteration(); // popover show is processed by the main loop
             app.LayoutAndDraw(true);

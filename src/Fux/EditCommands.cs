@@ -218,4 +218,203 @@ namespace Fux
                 to.AppendChild(from.FirstChild);
         }
     }
+
+    internal enum InsertKind { Element, Attribute, Comment, Pi }
+    internal enum InsertPos { Child, Before, After }
+
+    // Pure-DOM insert of a brand-new node relative to the selected one. Text/CDATA are
+    // deliberately absent: the fux tree folds them into element values, so an inserted one
+    // would be invisible — F2 value editing is how text content gets in. All validation
+    // (names, positions, duplicate attributes) happens in the constructor, which throws
+    // with a user-facing message and pushes nothing.
+    internal sealed class InsertNewNode : Command, INodeCommand
+    {
+        private readonly XmlNode _node;         // the created node
+        private readonly XmlElement _container; // element that receives it
+        private readonly XmlNode _ref;          // sibling anchor for Before/After (null = append)
+        private readonly XmlAttribute _refAttr; // attribute sibling anchor
+        private readonly bool _before;
+        private readonly XmlAttribute _nsDecl;  // auto-generated xmlns:prefix, if needed
+        private XmlNode _current;
+
+        public InsertNewNode(XmlNode anchor, InsertKind kind, InsertPos pos, string name)
+        {
+            if (anchor == null) throw new ArgumentException("nothing is selected");
+            var doc = anchor.OwnerDocument;
+            name = name?.Trim();
+
+            if (kind == InsertKind.Attribute)
+            {
+                _container = anchor as XmlElement ?? (anchor as XmlAttribute)?.OwnerElement
+                    ?? throw new ArgumentException("select an element (or one of its attributes) to add an attribute to");
+                RequireName(kind, name);
+                var xn = XmlHelpers.ParseName(_container, name, XmlNodeType.Attribute);
+                if (XmlHelpers.MissingNamespace(xn))
+                    _nsDecl = XmlHelpers.GenerateNamespaceDeclaration(_container, xn); // assigns xn.NamespaceUri
+                var qualified = string.IsNullOrEmpty(xn.Prefix) ? xn.LocalName : xn.Prefix + ":" + xn.LocalName;
+                if (_container.HasAttribute(qualified))
+                    throw new ArgumentException($"attribute '{qualified}' already exists on this element");
+                var na = doc.CreateAttribute(xn.Prefix, xn.LocalName, xn.NamespaceUri);
+                _node = na;
+                _refAttr = pos != InsertPos.Child ? anchor as XmlAttribute : null;
+                _before = pos == InsertPos.Before;
+            }
+            else
+            {
+                var anchorNode = anchor is XmlAttribute at ? at.OwnerElement : anchor;
+                if (pos == InsertPos.Child)
+                {
+                    _container = anchorNode as XmlElement
+                        ?? throw new ArgumentException("select an element to insert into");
+                }
+                else
+                {
+                    if (anchor is XmlAttribute)
+                        throw new ArgumentException("cannot insert before/after an attribute — pick 'Child' to insert into its element");
+                    _container = anchorNode.ParentNode as XmlElement
+                        ?? throw new ArgumentException("cannot insert siblings of the document root");
+                    _ref = anchorNode;
+                    _before = pos == InsertPos.Before;
+                }
+
+                switch (kind)
+                {
+                    case InsertKind.Element:
+                        RequireName(kind, name);
+                        var xn = XmlHelpers.ParseName(_container, name, XmlNodeType.Element);
+                        if (XmlHelpers.MissingNamespace(xn))
+                            _nsDecl = XmlHelpers.GenerateNamespaceDeclaration(_container, xn);
+                        _node = doc.CreateElement(xn.Prefix, xn.LocalName, xn.NamespaceUri);
+                        break;
+                    case InsertKind.Comment:
+                        _node = doc.CreateComment("");
+                        break;
+                    case InsertKind.Pi:
+                        RequireName(kind, name);
+                        XmlConvert.VerifyName(name);
+                        _node = doc.CreateProcessingInstruction(name, "");
+                        break;
+                }
+            }
+            _current = _node;
+        }
+
+        private static void RequireName(InsertKind kind, string name)
+        {
+            if (string.IsNullOrEmpty(name))
+                throw new ArgumentException($"a name is required for a new {kind}");
+        }
+
+        public XmlNode Node => _current;
+        public override string Name => "Insert";
+        public override bool IsNoop => false;
+
+        public override void Do() => Redo();
+
+        public override void Redo()
+        {
+            if (_node is XmlAttribute a)
+            {
+                if (_refAttr != null)
+                {
+                    if (_before) _container.Attributes.InsertBefore(a, _refAttr);
+                    else _container.Attributes.InsertAfter(a, _refAttr);
+                }
+                else
+                {
+                    _container.SetAttributeNode(a);
+                }
+                if (_nsDecl != null) _container.SetAttributeNode(_nsDecl);
+            }
+            else
+            {
+                if (_ref != null)
+                {
+                    if (_before) _container.InsertBefore(_node, _ref);
+                    else _container.InsertAfter(_node, _ref);
+                }
+                else
+                {
+                    _container.AppendChild(_node);
+                }
+                // a generated declaration rides the new element (and vanishes with it on undo)
+                if (_nsDecl != null && _node is XmlElement ne) ne.SetAttributeNode(_nsDecl);
+            }
+            _current = _node;
+        }
+
+        public override void Undo()
+        {
+            if (_node is XmlAttribute a)
+            {
+                if (_nsDecl != null) _container.RemoveAttributeNode(_nsDecl);
+                _container.RemoveAttributeNode(a);
+            }
+            else
+            {
+                _container.RemoveChild(_node);
+            }
+            _current = _container;
+        }
+    }
+
+    // Pure-DOM delete with exact-position undo: the successor sibling (or successor
+    // attribute) is the anchor for reinsertion. The document root is off limits — an
+    // empty document would ripple through every pane for little gain.
+    internal sealed class DeleteNode : Command, INodeCommand
+    {
+        private readonly XmlNode _node;
+        private XmlElement _container;   // parent element / attribute owner
+        private XmlNode _ref;            // sibling that followed the node (null = was last)
+        private XmlAttribute _refAttr;   // attribute that followed (null = was last)
+        private XmlNode _current;
+
+        public DeleteNode(XmlNode node)
+        {
+            if (node == null) throw new ArgumentException("nothing is selected");
+            if (node == node.OwnerDocument?.DocumentElement)
+                throw new ArgumentException("cannot delete the document root");
+            _node = _current = node;
+        }
+
+        public XmlNode Node => _current;
+        public override string Name => "Delete";
+        public override bool IsNoop => false;
+
+        public override void Do()
+        {
+            if (_node is XmlAttribute a)
+            {
+                _container = a.OwnerElement;
+                var attrs = _container.Attributes;
+                int i = 0;
+                while (i < attrs.Count && !ReferenceEquals(attrs[i], a)) i++;
+                _refAttr = i + 1 < attrs.Count ? attrs[i + 1] : null;
+                _container.RemoveAttributeNode(a);
+            }
+            else
+            {
+                _container = (XmlElement)_node.ParentNode;
+                _ref = _node.NextSibling;
+                _container.RemoveChild(_node);
+            }
+            _current = _container;
+        }
+
+        public override void Redo() => Do();
+
+        public override void Undo()
+        {
+            if (_node is XmlAttribute a)
+            {
+                if (_refAttr != null) _container.Attributes.InsertBefore(a, _refAttr);
+                else _container.SetAttributeNode(a);
+            }
+            else
+            {
+                _container.InsertBefore(_node, _ref); // null _ref appends at the end
+            }
+            _current = _node;
+        }
+    }
 }
