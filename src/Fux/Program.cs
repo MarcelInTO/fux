@@ -142,9 +142,40 @@ namespace Fux
         private static int RunUi(string file)
         {
             var ui = BuildUi(file);
-            ui.App.Run(ui.Top, null);
+
+            // Last-resort net for exceptions that bypass the main loop (e.g. the driver's
+            // input thread): restore the terminal and leave a stack behind before dying.
+            AppDomain.CurrentDomain.UnhandledException += (s, e) =>
+            {
+                try { ui.App.Dispose(); } catch { }
+                WriteCrashLog(file, e.ExceptionObject as Exception);
+            };
+
+            try
+            {
+                ui.App.Run(ui.Top, null);
+            }
+            catch (Exception ex)
+            {
+                // Restore the terminal FIRST (leave alt screen, mouse tracking off, cooked
+                // mode) — an unhandled exception must never strand the user in raw mode —
+                // then leave the stack somewhere findable: stderr scrolls away with the
+                // wreckage, the crash log survives.
+                try { ui.App.Dispose(); } catch { /* the driver may already be wedged */ }
+                WriteCrashLog(file, ex);
+                return 70; // EX_SOFTWARE
+            }
             ui.App.Dispose();
             return 0;
+        }
+
+        private static void WriteCrashLog(string file, Exception ex)
+        {
+            var log = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "fux-crash.log");
+            try { System.IO.File.WriteAllText(log, $"{DateTime.Now:O} fux crash\nfile: {file}\n\n{ex}\n"); } catch { }
+            Console.Error.WriteLine($"fux: unhandled error: {ex?.Message}");
+            Console.Error.WriteLine(ex?.StackTrace);
+            Console.Error.WriteLine($"fux: full details written to {log}");
         }
 
         // The assembled interactive UI: what RunUi runs and what the --drill self-test drives
