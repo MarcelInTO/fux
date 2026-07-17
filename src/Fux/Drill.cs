@@ -144,18 +144,19 @@ namespace Fux
             if (owner != null)
             {
                 var attr = owner.GetAttributeNode("title");
+                var attrValue = attr.Value; // fixture-agnostic: --drill may run on any document
                 int pos = IndexOfAttr(owner, attr);
-                Check(Program.TryRename(ui, attr, "role") == null, "attribute rename accepted");
-                var renamed = owner.GetAttributeNode("role");
-                Check(renamed != null && renamed.Value == "Wizard", "attribute keeps its value");
+                Check(Program.TryRename(ui, attr, "fuxrenamed") == null, "attribute rename accepted");
+                var renamed = owner.GetAttributeNode("fuxrenamed");
+                Check(renamed != null && renamed.Value == attrValue, "attribute keeps its value");
                 Check(IndexOfAttr(owner, renamed) == pos, "attribute keeps its position");
                 Check(ReferenceEquals(ui.Tree.SelectedObject, renamed), "tree selects the new attribute instance");
                 app.Keyboard.RaiseKeyDownEvent(Key.Z.WithCtrl);
                 var back = owner.GetAttributeNode("title");
-                Check(ReferenceEquals(back, attr) && back.Value == "Wizard" && IndexOfAttr(owner, back) == pos,
+                Check(ReferenceEquals(back, attr) && back.Value == attrValue && IndexOfAttr(owner, back) == pos,
                     "undo restores the original attribute in place");
                 app.Keyboard.RaiseKeyDownEvent(Key.Y.WithCtrl);
-                Check(owner.GetAttributeNode("role") != null, "redo re-applies the rename");
+                Check(owner.GetAttributeNode("fuxrenamed") != null, "redo re-applies the rename");
                 app.Keyboard.RaiseKeyDownEvent(Key.Z.WithCtrl);
             }
             else

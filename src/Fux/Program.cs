@@ -55,7 +55,7 @@ namespace Fux
             {
                 try
                 {
-                    _model.Load(file);
+                    LoadDocument(file);
                 }
                 catch (Exception ex)
                 {
@@ -65,6 +65,32 @@ namespace Fux
             }
 
             return dump ? Dump() : validate ? Validate() : drill ? Drill.Run(file) : RunUi(file);
+        }
+
+        // Load a document the way XmlNotepad's FormMain.OpenFile does: sniff the type from
+        // the extension (Model's FileEntity.SetMimeType mapping) and coerce HTML into a DOM
+        // via SgmlReader (FormMain.ImportHtml settings: HTML doctype, lower-case folding,
+        // significant whitespace). Everything else is a plain XML load. Note the same
+        // parity gap as upstream: saving an HTML-imported document writes XML.
+        private static void LoadDocument(string file)
+        {
+            var ext = System.IO.Path.GetExtension(file).ToLowerInvariant();
+            if (ext == ".htm" || ext == ".html")
+            {
+                using var text = new System.IO.StreamReader(file); // BOM-sniffing, UTF-8 default
+                using var reader = new Sgml.SgmlReader
+                {
+                    DocType = "HTML",
+                    CaseFolding = Sgml.CaseFolding.ToLower,
+                    InputStream = text,
+                    WhitespaceHandling = WhitespaceHandling.Significant,
+                };
+                _model.Load(reader, file);
+            }
+            else
+            {
+                _model.Load(file);
+            }
         }
 
         // --------------------------------------------------------------------

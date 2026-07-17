@@ -58,6 +58,19 @@ jobs:
           echo "$out" | grep -q "<Employees>" || { echo "::error::--dump output missing <Employees>"; exit 1; }
           echo "$out" | grep -q "@id"          || { echo "::error::--dump output missing @id attribute"; exit 1; }
 
+      # HTML import: .html routes through SgmlReader (XmlNotepad's FormMain.ImportHtml
+      # parity), so tag-soup HTML — unclosed <meta>/<p>, void <br> — loads as a DOM
+      # instead of failing XML well-formedness. Fixture is generated inline.
+      - name: HTML import smoke (SgmlReader coercion)
+        shell: bash
+        run: |
+          printf '<!DOCTYPE html>\n<html>\n<head>\n<meta charset="utf-8">\n<title>busted</title>\n</head>\n<body><p>hello<br>world</body>\n</html>\n' > "$RUNNER_TEMP/busted.html"
+          out=$(dotnet run --project src/Fux -c Release -- --dump "$RUNNER_TEMP/busted.html")
+          echo "$out"
+          echo "$out" | grep -q "<html>"           || { echo "::error::HTML import produced no <html> root"; exit 1; }
+          echo "$out" | grep -q "@charset"         || { echo "::error::unclosed <meta> attribute missing"; exit 1; }
+          echo "$out" | grep -q "<br>"             || { echo "::error::void <br> element missing"; exit 1; }
+
       # Exercises the XSD validation path end to end (auto-loads emp.xsd via schemaLocation).
       - name: Engine validation smoke (valid doc -> 0 errors)
         shell: bash

@@ -18,6 +18,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="Microsoft.Xml.SgmlReader" Version="1.8.30" />
     <PackageReference Include="Terminal.Gui" Version="2.4.*" />
   </ItemGroup>
 
