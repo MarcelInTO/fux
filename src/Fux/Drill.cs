@@ -545,7 +545,55 @@ namespace Fux
                 Check(!Program.Model.Dirty, "save clears dirty after the find drill");
             }
 
-            // --- 12. F9 focuses the menu bar; ^Q requests stop.
+            // --- 12. Open and Save As. The pickers can't run headless, so these drive TryOpen /
+            // TrySaveAs — the paths OpenDialog and SaveDialog commit through. Everything is
+            // written next to the drill's own scratch copy, so no fixture is touched.
+            {
+                var scratch = System.IO.Path.GetDirectoryName(file);
+                var other = System.IO.Path.Combine(scratch, "fux_drill_other.xml");
+                System.IO.File.WriteAllText(other, "<?xml version=\"1.0\"?>\n<fuxother><kid/></fuxother>\n");
+
+                // Leave history behind, so replacing the document has something to discard.
+                Program.TryInsert(ui, Program.Model.Document.DocumentElement,
+                    InsertKind.Element, InsertPos.Child, "fuxstale");
+                Check(ui.Undo.Peek() != null, "there is undo history to discard");
+
+                Check(Program.TryOpen(ui, other) == null, "open accepted");
+                Check(Program.Model.Document?.DocumentElement?.Name == "fuxother",
+                    "the model holds the newly opened document");
+                Check(ReferenceEquals(ui.Tree.SelectedObject, Program.Model.Document.DocumentElement),
+                    "the tree rebinds to the new root");
+                // The old stack's commands close over nodes no longer in any document.
+                Check(ui.Undo.Peek() == null, "opening clears the undo history");
+                Check(!Program.Model.Dirty, "a freshly opened document is clean");
+                app.LayoutAndDraw(true);
+                Check(ScreenRow(app, 1).Contains("fux_drill_other.xml"), "the pane title follows the new file");
+                Check(ScreenText(app).Contains("<fuxother>"), "the tree draws the new document");
+
+                // Save As writes elsewhere and retargets the model at the new path.
+                var saved = System.IO.Path.Combine(scratch, "fux_drill_saved.xml");
+                Check(Program.TrySaveAs(ui, saved) == null, "save as accepted");
+                Check(System.IO.File.Exists(saved), "save as writes the file");
+                Check(Program.Model.FileName == saved, "the model retargets to the saved path");
+                Check(!Program.Model.Dirty, "save as leaves the document clean");
+                app.LayoutAndDraw(true);
+                Check(ScreenRow(app, 1).Contains("fux_drill_saved.xml"), "the pane title follows the saved name");
+
+                // A document that will not parse reports, and leaves the view consistent with
+                // whatever the model ended up holding rather than with the document it replaced.
+                var bad = System.IO.Path.Combine(scratch, "fux_drill_bad.xml");
+                System.IO.File.WriteAllText(bad, "<unclosed>");
+                Check(Program.TryOpen(ui, bad) != null, "a malformed document is reported");
+                Check(ReferenceEquals(ui.Tree.SelectedObject, Program.Model.Document?.DocumentElement),
+                    "the tree matches the model after a failed open");
+                Check(ui.Undo.Peek() == null, "a failed open leaves no stale history");
+
+                // Back to the drill's own document so the rest of the run is unsurprising.
+                Check(Program.TryOpen(ui, file) == null, "the original document reopens");
+                Check(!Program.Model.Dirty, "and comes back clean");
+            }
+
+            // --- 13. F9 focuses the menu bar; ^Q requests stop.
             bool f9Handled = app.Keyboard.RaiseKeyDownEvent(Key.F9);
             app.RaiseIteration(); // popover show is processed by the main loop
             app.LayoutAndDraw(true);

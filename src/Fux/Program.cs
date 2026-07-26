@@ -246,7 +246,9 @@ namespace Fux
             {
                 new MenuBarItem("_File", new View[]
                 {
+                    new MenuItem("_Open…", "^O", () => StartOpen(ui), new Key()),
                     new MenuItem("_Save", "^S", () => SaveFile(ui), new Key()),
+                    new MenuItem("Save _As…", "", () => StartSaveAs(ui), new Key()), // menu-only: see the key handler
                     new MenuItem("_Quit", "^Q", () => RequestQuit(ui), new Key()),
                 }),
                 new MenuBarItem("_Edit", new View[]
@@ -417,6 +419,14 @@ namespace Fux
                 else if (!ui.Editing && e.KeyCode == Key.Y.WithCtrl.KeyCode) { DoRedo(ui); e.Handled = true; }
                 else if (!ui.Editing && e.KeyCode == Key.DeleteChar.KeyCode) { DeleteSelected(ui); e.Handled = true; }
                 else if (!ui.Editing && IsNudgeKey(e, out var nudge)) { NudgeSelected(ui, nudge); e.Handled = true; }
+                else if (!ui.Editing && e.KeyCode == Key.O.WithCtrl.KeyCode) { StartOpen(ui); e.Handled = true; }
+                // No Save As chord on purpose: Ctrl+Shift+<letter> is indistinguishable from
+                // Ctrl+<letter> in legacy terminal encoding — both arrive as one control byte
+                // (^S is 0x13) — so a terminal that doesn't speak the kitty protocol or
+                // modifyOtherKeys would turn an advertised "^Shift+S" into a plain Save,
+                // quietly writing the current file when the user asked to write another one.
+                // Save As lives in the File menu, where it can't misfire. (Ctrl+Shift+Arrow
+                // for nudge is fine: arrows are CSI sequences carrying an explicit modifier.)
                 else if (!ui.Editing && e.KeyCode == Key.F.WithCtrl.KeyCode) { StartFind(ui); e.Handled = true; }
                 else if (!ui.Editing && e.KeyCode == Key.F3.WithShift.KeyCode) { FindAgain(ui, true); e.Handled = true; }
                 else if (!ui.Editing && e.KeyCode == Key.F3.KeyCode) { FindAgain(ui, false); e.Handled = true; }
@@ -546,7 +556,8 @@ namespace Fux
             finally { ui.ModalDepth--; }
         }
 
-        private static void RunModal(Ui ui, Dialog d)
+        // Runnable, not Dialog: the file pickers derive from Dialog<T>, which is not a Dialog.
+        private static void RunModal(Ui ui, Runnable d)
         {
             ui.ModalDepth++;
             try { ui.App.Run(d, null); }
@@ -978,7 +989,7 @@ namespace Fux
         private static void SaveFile(Ui ui)
         {
             if (ui == null || ui.Editing) return;
-            if (_model.FileName == null) return; // Save As arrives with the file-open milestone
+            if (_model.FileName == null) { StartSaveAs(ui); return; } // nowhere to save yet: ask
             try
             {
                 _model.Save(_model.FileName);
@@ -990,17 +1001,118 @@ namespace Fux
             UpdateTitle(ui);
         }
 
+        // Anything that replaces or abandons the open document goes through here first.
+        // Returns true to proceed; false means the user cancelled, or chose Save and it failed —
+        // either way the document must stay put.
+        private static bool ConfirmDiscard(Ui ui)
+        {
+            if (!_model.Dirty) return true;
+            var name = _model.FileName == null ? "this document" : System.IO.Path.GetFileName(_model.FileName);
+            int choice = ModalQuery(ui, "Unsaved changes", $"Save changes to {name}?", "Save", "Discard", "Cancel") ?? 2;
+            if (choice == 0) { SaveFile(ui); return !_model.Dirty; } // save failed → stay
+            return choice == 1;                                      // Discard; anything else cancels
+        }
+
         private static void RequestQuit(Ui ui)
         {
             if (ui == null) return;
-            if (_model.Dirty)
-            {
-                var name = _model.FileName == null ? "this document" : System.IO.Path.GetFileName(_model.FileName);
-                int choice = ModalQuery(ui, "Unsaved changes", $"Save changes to {name}?", "Save", "Discard", "Cancel") ?? 2;
-                if (choice == 0) { SaveFile(ui); if (_model.Dirty) return; } // save failed → stay
-                else if (choice != 1) return; // Cancel (or dismissed)
-            }
+            if (!ConfirmDiscard(ui)) return;
             ui.App.RequestStop(ui.Top);
+        }
+
+        // --------------------------------------------------------------------
+        // Opening and saving elsewhere. The pickers only collect a path; TryOpen and
+        // TrySaveAs are the commit paths, and are what the drill exercises.
+        // --------------------------------------------------------------------
+
+        private static void StartOpen(Ui ui)
+        {
+            if (ui == null || ui.Editing) return;
+            if (!ConfirmDiscard(ui)) return;
+
+            var d = new OpenDialog { Title = "Open", OpenMode = OpenMode.File, AllowsMultipleSelection = false };
+            d.HotKeySpecifier = NoHotKey; // paths carry underscores — see NoHotKey
+            if (_model.FileName != null) d.Path = _model.FileName;
+            RunModal(ui, d);
+            var picked = d.FilePaths.Count > 0 ? d.FilePaths[0] : null; // empty when cancelled
+            d.Dispose();
+            if (string.IsNullOrWhiteSpace(picked)) return;
+
+            var err = TryOpen(ui, picked);
+            if (err != null) ModalQuery(ui, "Open failed", err, "OK");
+        }
+
+        private static void StartSaveAs(Ui ui)
+        {
+            if (ui == null || ui.Editing) return;
+
+            var d = new SaveDialog { Title = "Save As" };
+            d.HotKeySpecifier = NoHotKey;
+            if (_model.FileName != null) d.Path = _model.FileName;
+            RunModal(ui, d);
+            var picked = d.FileName; // null when cancelled
+            d.Dispose();
+            if (string.IsNullOrWhiteSpace(picked)) return;
+
+            var err = TrySaveAs(ui, picked);
+            if (err != null) ModalQuery(ui, "Save failed", err, "OK");
+        }
+
+        // Load a document in place of the current one. Returns null, or why it could not be
+        // read. The view is rebound either way: after a failed load the model may hold nothing
+        // or a fragment, and a tree still showing the previous document's nodes would be a lie —
+        // and a live handle on nodes the model has let go of.
+        internal static string TryOpen(Ui ui, string path)
+        {
+            string err = null;
+            try
+            {
+                LoadDocument(System.IO.Path.GetFullPath(path));
+            }
+            catch (Exception ex)
+            {
+                err = $"cannot load '{System.IO.Path.GetFileName(path)}': {ex.Message}";
+            }
+            RebindDocument(ui);
+            return err;
+        }
+
+        internal static string TrySaveAs(Ui ui, string path)
+        {
+            try
+            {
+                _model.Save(System.IO.Path.GetFullPath(path));
+            }
+            catch (Exception ex)
+            {
+                return ex.Message;
+            }
+            UpdateTitle(ui); // Save retargets the model, so the pane title follows the new name
+            return null;
+        }
+
+        // Point the whole view at whatever the model now holds. The undo stack goes with the old
+        // document: its commands close over nodes that are no longer in any document, so undoing
+        // one would either do nothing visible or reattach an orphan. The standing find goes too.
+        private static void RebindDocument(Ui ui)
+        {
+            if (ui == null) return;
+            ui.Undo.Clear();
+            ui.FindExpr = null;
+            SetFindStatus(ui, "");
+
+            ui.Tree.ClearObjects();
+            var root = _model.Document?.DocumentElement;
+            if (root != null)
+            {
+                ui.Tree.AddObject(root);
+                ui.Tree.ExpandAll();
+            }
+            ui.Tree.SelectedObject = root; // null when the load left nothing behind
+            ui.ValueView.Text = root == null ? "" : GetValue(root) ?? "";
+            Revalidate(ui);
+            UpdateTitle(ui);
+            ui.Tree.SetFocus();
         }
 
         // vim xml.vim's group links, via Theme: elements blue (Function -> Identifier),
