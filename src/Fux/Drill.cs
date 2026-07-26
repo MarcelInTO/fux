@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Xml;
 using Terminal.Gui.Drawing;
 using Terminal.Gui.Input;
+using XmlNotepad;
 
 namespace Fux
 {
@@ -423,7 +424,114 @@ namespace Fux
                 Check(!Program.Model.Dirty, "save clears dirty after the nudge drill");
             }
 
-            // --- 11. F9 focuses the menu bar; ^Q requests stop.
+            // --- 11. Find. The ^F dialog can't run headless (a nested Run would block the
+            // injector), so these drive TryFind directly — the same path the dialog commits
+            // through — plus the F3 key bindings, which need no modal. Two uniquely named
+            // elements make the ring deterministic on any document.
+            var rootF = doc?.DocumentElement;
+            if (rootF != null)
+            {
+                int kidsF = rootF.ChildNodes.Count;
+
+                string DoFind(string expr, FindFlags flags, SearchFilter filter, bool back = false)
+                {
+                    ui.FindExpr = expr;
+                    ui.FindOptions = flags;
+                    ui.FindIn = filter;
+                    return Program.TryFind(ui, back);
+                }
+
+                Check(Program.TryInsert(ui, rootF, InsertKind.Element, InsertPos.Child, "fuxfind") == null,
+                    "find playground: first element inserted");
+                var h1 = ui.Tree.SelectedObject as XmlElement;
+                Check(Program.TryInsert(ui, rootF, InsertKind.Element, InsertPos.Child, "fuxfind") == null,
+                    "find playground: second element inserted");
+                var h2 = ui.Tree.SelectedObject as XmlElement;
+
+                // Walking the ring forwards, wrapping at the end, then backwards.
+                ui.Tree.SelectedObject = rootF;
+                Check(DoFind("fuxfind", FindFlags.Normal, SearchFilter.Everything) == "1/2",
+                    "find reports the first of two hits");
+                Check(ReferenceEquals(ui.Tree.SelectedObject, h1), "find selects the first hit");
+                Check(Program.TryFind(ui, false) == "2/2", "find next steps to the second hit");
+                Check(ReferenceEquals(ui.Tree.SelectedObject, h2), "find next selects the second hit");
+                Check(Program.TryFind(ui, false) == "1/2", "find next wraps at the end");
+                Check(Program.TryFind(ui, true) == "2/2", "find previous wraps at the start");
+                Check(ReferenceEquals(ui.Tree.SelectedObject, h2), "find previous selects the last hit");
+
+                // The status slot carries the ring position.
+                app.LayoutAndDraw(true);
+                Check(ScreenText(app).Contains("find 2/2"), "the status bar shows the ring position");
+
+                // The F3 bindings go through the central key handler. FindExpr is already set,
+                // so neither opens the modal.
+                ui.Tree.SelectedObject = rootF;
+                ui.Tree.SetFocus();
+                app.Keyboard.RaiseKeyDownEvent(Key.F3);
+                Check(ReferenceEquals(ui.Tree.SelectedObject, h1), "F3 finds the next match");
+                app.Keyboard.RaiseKeyDownEvent(Key.F3.WithShift);
+                Check(ReferenceEquals(ui.Tree.SelectedObject, rootF) == false &&
+                      ReferenceEquals(ui.Tree.SelectedObject, h2), "Shift+F3 finds the previous match");
+
+                Check(DoFind("fuxzzznotthere", FindFlags.Normal, SearchFilter.Everything)
+                        .StartsWith("no match"), "a term with no hits reports no match");
+
+                // Case sensitivity, on the same two names.
+                ui.Tree.SelectedObject = rootF;
+                Check(DoFind("FUXFIND", FindFlags.Normal, SearchFilter.Everything) == "1/2",
+                    "matching is case-insensitive by default");
+                Check(DoFind("FUXFIND", FindFlags.MatchCase, SearchFilter.Everything)
+                        .StartsWith("no match"), "match case rejects the wrong casing");
+
+                // Values vs names: give one hit a value and search for that instead.
+                ui.Undo.Push(new EditNodeValue(h1, "a needle here"));
+                ui.Tree.SelectedObject = rootF;
+                Check(DoFind("needle", FindFlags.Normal, SearchFilter.Text) == "1/1",
+                    "a value search finds the element by its text");
+                Check(ReferenceEquals(ui.Tree.SelectedObject, h1), "the value hit is the element holding it");
+                Check(DoFind("needle", FindFlags.Normal, SearchFilter.Names)
+                        .StartsWith("no match"), "a name search ignores values");
+                ui.Tree.SelectedObject = rootF; // a miss leaves the selection where it was
+                Check(DoFind("fuxfind", FindFlags.Normal, SearchFilter.Names) == "1/2",
+                    "a name search still finds names");
+
+                // Whole word matches a run between delimiters, not a prefix of one.
+                ui.Tree.SelectedObject = rootF;
+                Check(DoFind("needle", FindFlags.WholeWord, SearchFilter.Text) == "1/1",
+                    "whole word matches a whole word");
+                Check(DoFind("needl", FindFlags.WholeWord, SearchFilter.Text)
+                        .StartsWith("no match"), "whole word rejects a partial word");
+                Check(DoFind("needl", FindFlags.Normal, SearchFilter.Text) == "1/1",
+                    "the same partial matches without whole word");
+
+                // Regex and XPath modes, and what each says about a malformed expression.
+                ui.Tree.SelectedObject = rootF;
+                Check(DoFind("fuxf.nd", FindFlags.Regex, SearchFilter.Everything) == "1/2",
+                    "regex mode matches");
+                Check(DoFind("fuxf[", FindFlags.Regex, SearchFilter.Everything)
+                        .StartsWith("bad regex"), "a malformed regex is reported, not thrown");
+                ui.Tree.SelectedObject = rootF;
+                Check(DoFind("//*[local-name()='fuxfind']", FindFlags.XPath, SearchFilter.Everything) == "1/2",
+                    "xpath mode matches");
+                Check(ReferenceEquals(ui.Tree.SelectedObject, h1), "xpath selects the first hit in tree order");
+                Check(DoFind("///", FindFlags.XPath, SearchFilter.Everything)
+                        .StartsWith("bad XPath"), "a malformed xpath is reported, not thrown");
+
+                // A find changes no DOM: the undo stack is untouched by all of the above.
+                var topF = ui.Undo.Peek();
+                ui.Tree.SelectedObject = rootF;
+                DoFind("fuxfind", FindFlags.Normal, SearchFilter.Everything);
+                Check(ReferenceEquals(ui.Undo.Peek(), topF), "finding pushes nothing on the undo stack");
+
+                ui.FindExpr = null;
+                Check(Program.TryDelete(ui, h1) == null && Program.TryDelete(ui, h2) == null,
+                    "find playground deleted");
+                Check(rootF.ChildNodes.Count == kidsF, "the document is back to its original children");
+                app.Keyboard.RaiseKeyDownEvent(Key.S.WithCtrl);
+                Check(!Program.Model.Dirty, "save clears dirty after the find drill");
+            }
+
+            // --- 12. F9 focuses the menu bar; ^Q requests stop.
             bool f9Handled = app.Keyboard.RaiseKeyDownEvent(Key.F9);
             app.RaiseIteration(); // popover show is processed by the main loop
             app.LayoutAndDraw(true);

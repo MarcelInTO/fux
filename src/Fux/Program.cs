@@ -194,6 +194,13 @@ namespace Fux
             public bool Editing;     // value-pane edit mode (F2 commits, Esc cancels)
             public XmlNode EditNode; // node whose value is being edited
             public int ModalDepth;   // >0 while a dialog/message box runs: app-wide keys stay inert
+
+            // The standing find, so F3 can repeat it. Kept as the raw query rather than a
+            // built Query: an XPath one caches the nodes it selected, which the next edit
+            // would invalidate (see the note on Find).
+            public string FindExpr;
+            public FindFlags FindOptions;
+            public SearchFilter FindIn;
         }
 
         // Drill introspection: the engine instance behind the UI.
@@ -241,6 +248,12 @@ namespace Fux
                     new MenuItem("Nudge Ri_ght", "^Shift+Right", () => NudgeSelected(ui, NudgeDir.Right), new Key()),
                     new MenuItem("_Undo", "^Z", () => DoUndo(ui), new Key()),
                     new MenuItem("_Redo", "^Y", () => DoRedo(ui), new Key()),
+                }),
+                new MenuBarItem("_Search", new View[]
+                {
+                    new MenuItem("_Find…", "^F", () => StartFind(ui), new Key()),
+                    new MenuItem("Find _Next", "F3", () => FindAgain(ui, false), new Key()),
+                    new MenuItem("Find _Previous", "Shift+F3", () => FindAgain(ui, true), new Key()),
                 }),
                 new MenuBarItem("_View", new View[]
                 {
@@ -381,6 +394,9 @@ namespace Fux
                 else if (!ui.Editing && e.KeyCode == Key.Y.WithCtrl.KeyCode) { DoRedo(ui); e.Handled = true; }
                 else if (!ui.Editing && e.KeyCode == Key.DeleteChar.KeyCode) { DeleteSelected(ui); e.Handled = true; }
                 else if (!ui.Editing && IsNudgeKey(e, out var nudge)) { NudgeSelected(ui, nudge); e.Handled = true; }
+                else if (!ui.Editing && e.KeyCode == Key.F.WithCtrl.KeyCode) { StartFind(ui); e.Handled = true; }
+                else if (!ui.Editing && e.KeyCode == Key.F3.WithShift.KeyCode) { FindAgain(ui, true); e.Handled = true; }
+                else if (!ui.Editing && e.KeyCode == Key.F3.KeyCode) { FindAgain(ui, false); e.Handled = true; }
                 else if (e.KeyCode == Key.F5.KeyCode) { ToggleTheme(ui); e.Handled = true; }
             };
 
@@ -630,6 +646,129 @@ namespace Fux
             return null;
         }
 
+        // --------------------------------------------------------------------
+        // Find: ^F sets the query, F3 / Shift+F3 walk the ring. Matching lives in Find.cs;
+        // this is the view half — reveal the hit and report the ring position.
+        // --------------------------------------------------------------------
+
+        // ^F collects a query via a modal prompt, then jumps to the first hit. As with rename
+        // and insert, the dialog is only the collector: TryFind is the headless-testable path.
+        private static void StartFind(Ui ui)
+        {
+            if (ui == null || ui.Editing) return;
+
+            var field = new TextField { X = 1, Y = 1, Width = Dim.Fill(1), Text = ui.FindExpr ?? "" };
+            var modeSel = new OptionSelector
+            {
+                X = 1, Y = 4,
+                Labels = new[] { "Text", "Regex", "XPath" },
+                Value = (ui.FindOptions & FindFlags.XPath) != 0 ? 2
+                      : (ui.FindOptions & FindFlags.Regex) != 0 ? 1 : 0,
+            };
+            var filterSel = new OptionSelector
+            {
+                X = 16, Y = 4,
+                Labels = new[] { "Everything", "Names", "Values", "Comments" },
+                Value = (int)ui.FindIn,
+            };
+            var caseBox = new CheckBox
+            {
+                X = 34, Y = 4, Text = "Match case",
+                Value = (ui.FindOptions & FindFlags.MatchCase) != 0 ? CheckState.Checked : CheckState.UnChecked,
+            };
+            var wordBox = new CheckBox
+            {
+                X = 34, Y = 5, Text = "Whole word",
+                Value = (ui.FindOptions & FindFlags.WholeWord) != 0 ? CheckState.Checked : CheckState.UnChecked,
+            };
+            var d = new Dialog { Title = "Find", Width = 62, Height = 14 };
+            d.Add(new Label { X = 1, Y = 0, Text = "Find what:" }, field,
+                  new Label { X = 1, Y = 3, Text = "Mode:" },
+                  new Label { X = 16, Y = 3, Text = "Look in:" },
+                  modeSel, filterSel, caseBox, wordBox);
+            d.AddButton(new Button { Text = "Cancel" }); // Result 0
+            d.AddButton(new Button { Text = "Find" });   // Result 1; last added = default (Enter)
+            field.SetFocus();
+            field.MoveEnd();
+            RunModal(ui, d);
+
+            bool ok = d.Result is 1;
+            var expr = field.Text;
+            var flags = FindFlags.Normal;
+            if (modeSel.Value == 1) flags |= FindFlags.Regex;
+            else if (modeSel.Value == 2) flags |= FindFlags.XPath;
+            if (caseBox.Value == CheckState.Checked) flags |= FindFlags.MatchCase;
+            if (wordBox.Value == CheckState.Checked) flags |= FindFlags.WholeWord;
+            var filter = (SearchFilter)(filterSel.Value ?? 0);
+            d.Dispose();
+            if (!ok) return;
+
+            ui.FindExpr = expr;
+            ui.FindOptions = flags;
+            ui.FindIn = filter;
+            TryFind(ui, false);
+        }
+
+        // F3 / Shift+F3 repeat the standing query. With nothing to repeat, they open the prompt
+        // rather than doing nothing quietly.
+        private static void FindAgain(Ui ui, bool backwards)
+        {
+            if (ui == null || ui.Editing) return;
+            if (string.IsNullOrEmpty(ui.FindExpr)) { StartFind(ui); return; }
+            TryFind(ui, backwards);
+        }
+
+        // Step the standing query, reveal the hit and report: "3/17", "no match", or why the
+        // expression itself was rejected. The status slot is updated here rather than by the
+        // callers, so no find path can forget to; the string is returned as well for the drill.
+        // Nothing throws out of a keypress, and nothing is pushed on the undo stack — a find
+        // changes no DOM.
+        internal static string TryFind(Ui ui, bool backwards)
+        {
+            var status = RunQuery(ui, backwards);
+            SetFindStatus(ui, status);
+            return status;
+        }
+
+        private static string RunQuery(Ui ui, bool backwards)
+        {
+            var root = _model.Document?.DocumentElement;
+            if (root == null) return "no document";
+
+            Query q;
+            try
+            {
+                q = new Query(_model.Document, ui.FindExpr, ui.FindOptions, ui.FindIn);
+            }
+            catch (ArgumentException ex)
+            {
+                return ex.Message;
+            }
+            if (q.IsEmpty) return "";
+
+            var hit = Find.Step(root, ui.Tree.SelectedObject, q, backwards, out int index, out int total);
+            if (hit == null)
+            {
+                var shown = ui.FindExpr.Length > 24 ? ui.FindExpr.Substring(0, 24) + "…" : ui.FindExpr;
+                return $"no match: {shown}"; // the title has a border's worth of room, not a line's
+            }
+
+            RevealNode(ui, hit);
+            ui.ValueView.Text = GetValue(hit) ?? "";
+            return $"{index}/{total}";
+        }
+
+        // Find reports into the value pane's border title, next to the hit it just selected.
+        // Not a message box: at the end of a ring, F3 popping a dialog on every press would be
+        // unusable. Not the status bar either — that row is already full at 100 columns, and an
+        // extra slot there renders clipped to two characters (measured, not guessed). Editing
+        // takes the title back (EndValueEdit), which is the right precedence.
+        private static void SetFindStatus(Ui ui, string text)
+        {
+            if (ui?.ValueView == null || ui.Editing) return;
+            ui.ValueView.Title = string.IsNullOrEmpty(text) ? "Value" : $"Value — find {text}";
+        }
+
         // Ctrl+Shift+Arrow nudges the selected node: up/down reorder it among its siblings,
         // left/right change its level. Refusals are quiet (see TryNudge) — running into the
         // edge of a document should feel like running into the end of a list.
@@ -753,8 +892,15 @@ namespace Fux
                     ui.Tree.ExpandAll();
                 }
             }
-            ExpandTo(ui, node);
             ExpandSubtree(ui, node);
+            RevealNode(ui, node);
+        }
+
+        // Open every container above a node, scroll it into view and select it. Find uses this
+        // without the refresh: it moves the selection around a document it hasn't changed.
+        internal static void RevealNode(Ui ui, XmlNode node)
+        {
+            ExpandTo(ui, node);
             ui.Tree.EnsureVisible(node);
             ui.Tree.SelectedObject = node;
         }
