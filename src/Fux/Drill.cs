@@ -314,7 +314,116 @@ namespace Fux
                 Check(!Program.Model.Dirty, "save clears dirty after the insert/delete drill");
             }
 
-            // --- 10. F9 focuses the menu bar; ^Q requests stop.
+            // --- 10. Nudge: Up/Down reorder within the display band, Left/Right change level.
+            // The playground is two freshly inserted, uniquely named elements, so every check
+            // holds on any document. The view checks around promote/demote are the load-bearing
+            // ones — v2's Branch.Refresh rebuilds a single level, so a move that refreshed one
+            // end would branch the node under both containers at once. TreeRows catches that;
+            // CountOnScreen catches the mirror failure, a node branched somewhere invisible.
+            var rootD = doc?.DocumentElement;
+            if (rootD != null)
+            {
+                int kidsD = rootD.ChildNodes.Count;
+                Check(Program.TryInsert(ui, rootD, InsertKind.Element, InsertPos.Child, "fuxa") == null,
+                    "nudge playground: first element inserted");
+                var fa = ui.Tree.SelectedObject as XmlElement;
+                Check(Program.TryInsert(ui, rootD, InsertKind.Element, InsertPos.Child, "fuxb") == null,
+                    "nudge playground: second element inserted");
+                var fb = ui.Tree.SelectedObject as XmlElement;
+
+                // Up/Down and the full history walk over one nudge.
+                Check(Program.TryNudge(ui, fb, NudgeDir.Up) == null, "nudge up accepted");
+                Check(ReferenceEquals(fb.NextSibling, fa), "nudge up swaps with the previous sibling");
+                Check(ReferenceEquals(ui.Tree.SelectedObject, fb), "the moved node stays selected");
+                app.Keyboard.RaiseKeyDownEvent(Key.Z.WithCtrl);
+                Check(ReferenceEquals(fa.NextSibling, fb) && ReferenceEquals(rootD.LastChild, fb),
+                    "undo restores the original sibling order exactly");
+                app.Keyboard.RaiseKeyDownEvent(Key.Y.WithCtrl);
+                Check(ReferenceEquals(fb.NextSibling, fa), "redo re-applies the move");
+                app.Keyboard.RaiseKeyDownEvent(Key.Z.WithCtrl);
+                Check(Program.TryNudge(ui, fa, NudgeDir.Down) == null, "nudge down accepted");
+                Check(ReferenceEquals(fb.NextSibling, fa) && ReferenceEquals(rootD.LastChild, fa),
+                    "nudge down moves it past its successor");
+                app.Keyboard.RaiseKeyDownEvent(Key.Z.WithCtrl);
+
+                // Band edges are quiet: nothing is pushed, nothing is reported.
+                var topD = ui.Undo.Peek();
+                XmlNode firstD = null;
+                foreach (XmlNode c in rootD.ChildNodes)
+                    if (Program.IsShown(c)) { firstD = c; break; }
+                Check(Program.TryNudge(ui, firstD, NudgeDir.Up) == null, "nudging the first child up is silent");
+                Check(Program.TryNudge(ui, fb, NudgeDir.Down) == null, "nudging the last child down is silent");
+                Check(Program.TryNudge(ui, rootD, NudgeDir.Up) == null, "nudging the document root is silent");
+                Check(Program.TryNudge(ui, firstD, NudgeDir.Left) == null,
+                    "promoting out of the document root is silent");
+                Check(ReferenceEquals(ui.Undo.Peek(), topD), "refused nudges push nothing");
+
+                // The key path: Ctrl+Shift+Arrow, plus the Ctrl-only alias for terminals that
+                // send no modifier for the Shift form.
+                ui.Tree.SelectedObject = fb;
+                ui.Tree.SetFocus();
+                app.Keyboard.RaiseKeyDownEvent(Key.CursorUp.WithCtrl.WithShift);
+                Check(ReferenceEquals(fb.NextSibling, fa), "^Shift+Up nudges the selection up");
+                app.Keyboard.RaiseKeyDownEvent(Key.CursorDown.WithCtrl);
+                Check(ReferenceEquals(fa.NextSibling, fb), "^Down (alias) nudges it back down");
+
+                // Demote: fb moves into fa, so two containers change at once. Both a row count
+                // that survives the move and the node being on screen afterwards are load-
+                // bearing — see TreeRows/CountOnScreen for what each one catches.
+                int rowsD = TreeRows(ui);
+                Check(Program.TryNudge(ui, fb, NudgeDir.Right) == null, "demote accepted");
+                Check(ReferenceEquals(fb.ParentNode, fa), "demote makes it a child of the preceding sibling");
+                app.LayoutAndDraw(true);
+                Check(TreeRows(ui) == rowsD, $"demote adds no row (was {rowsD}, now {TreeRows(ui)})");
+                Check(CountOnScreen(app, "<fuxb>") == 1,
+                    $"the demoted node is on screen once (drawn: {CountOnScreen(app, "<fuxb>")})");
+
+                // Attributes nudge within their own band, and promote onto the parent element.
+                Check(Program.TryInsert(ui, fb, InsertKind.Attribute, InsertPos.Child, "fuxp") == null &&
+                      Program.TryInsert(ui, fb, InsertKind.Attribute, InsertPos.Child, "fuxq") == null,
+                    "two attributes inserted on the demoted element");
+                var ap = fb.GetAttributeNode("fuxp");
+                var aq = fb.GetAttributeNode("fuxq");
+                Check(Program.TryNudge(ui, aq, NudgeDir.Up) == null, "attribute nudge up accepted");
+                Check(IndexOfAttr(fb, aq) == 0, "the attribute moves ahead of its predecessor");
+                app.Keyboard.RaiseKeyDownEvent(Key.Z.WithCtrl);
+                Check(IndexOfAttr(fb, ap) == 0 && IndexOfAttr(fb, aq) == 1, "undo restores attribute order");
+                Check(Program.TryNudge(ui, aq, NudgeDir.Left) == null, "attribute promote accepted");
+                Check(fa.GetAttributeNode("fuxq") != null && fb.GetAttributeNode("fuxq") == null,
+                    "the attribute lands on the parent element");
+                app.Keyboard.RaiseKeyDownEvent(Key.Z.WithCtrl);
+                Check(fb.GetAttributeNode("fuxq") != null && IndexOfAttr(fb, aq) == 1,
+                    "undo puts the attribute back in place");
+
+                // The one refusal worth a message: the parent already has that attribute.
+                Check(Program.TryInsert(ui, fa, InsertKind.Attribute, InsertPos.Child, "fuxp") == null,
+                    "colliding attribute added to the parent");
+                topD = ui.Undo.Peek();
+                Check(Program.TryNudge(ui, ap, NudgeDir.Left) != null,
+                    "promoting onto a duplicate attribute name is reported");
+                Check(Program.TryNudge(ui, ap, NudgeDir.Right) == null, "demoting an attribute is silent");
+                Check(ReferenceEquals(ui.Undo.Peek(), topD), "attribute refusals leave the stack alone");
+
+                // Promote: fb comes back out, again touching two containers. It was fa's only
+                // child, so upstream's rule lands it after fa rather than before.
+                int rowsP = TreeRows(ui);
+                Check(Program.TryNudge(ui, fb, NudgeDir.Left) == null, "promote accepted");
+                Check(ReferenceEquals(fb.ParentNode, rootD) && ReferenceEquals(fa.NextSibling, fb),
+                    "promote lifts it back out, after its old parent");
+                app.LayoutAndDraw(true);
+                Check(TreeRows(ui) == rowsP, $"promote adds no row (was {rowsP}, now {TreeRows(ui)})");
+                Check(CountOnScreen(app, "<fuxb>") == 1,
+                    $"the promoted node is on screen once (drawn: {CountOnScreen(app, "<fuxb>")})");
+
+                // Tear the playground down and come out clean.
+                Check(Program.TryDelete(ui, fa) == null && Program.TryDelete(ui, fb) == null,
+                    "playground deleted");
+                Check(rootD.ChildNodes.Count == kidsD, "the document is back to its original children");
+                app.Keyboard.RaiseKeyDownEvent(Key.S.WithCtrl);
+                Check(!Program.Model.Dirty, "save clears dirty after the nudge drill");
+            }
+
+            // --- 11. F9 focuses the menu bar; ^Q requests stop.
             bool f9Handled = app.Keyboard.RaiseKeyDownEvent(Key.F9);
             app.RaiseIteration(); // popover show is processed by the main loop
             app.LayoutAndDraw(true);
@@ -395,6 +504,27 @@ namespace Fux
                 sb.Append('\n');
             }
             return sb.ToString();
+        }
+
+        // Rows the tree holds, scroll position irrelevant — v2 sizes its content from the line
+        // map, one entry per branch. A move that rebuilt only one of its two containers leaves
+        // the other holding a branch for a child it no longer has, so the node is branched
+        // twice and this reads one too many. The on-screen count below can't see that on its
+        // own: EnsureVisible scrolls to the *first* line-map match, which can leave the stale
+        // twin below the fold.
+        private static int TreeRows(Program.Ui ui) => ui.Tree.GetContentSize().Height;
+
+        // How many rows on screen draw a given label. Catches the opposite failure: a node that
+        // landed inside a collapsed container is branched correctly but drawn nowhere, so it
+        // reads 0. TreeView<T> exposes no enumeration of its branches, hence counting pixels.
+        private static int CountOnScreen(Terminal.Gui.App.IApplication app, string label)
+        {
+            var screen = ScreenText(app);
+            int n = 0;
+            for (int i = screen.IndexOf(label, StringComparison.Ordinal); i >= 0;
+                 i = screen.IndexOf(label, i + label.Length, StringComparison.Ordinal))
+                n++;
+            return n;
         }
 
         private static int IndexOfAttr(XmlElement owner, XmlAttribute a)

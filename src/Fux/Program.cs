@@ -234,6 +234,11 @@ namespace Fux
                     new MenuItem("Re_name…", "^R", () => StartRename(ui), new Key()),
                     new MenuItem("_Insert…", "^N", () => StartInsert(ui), new Key()),
                     new MenuItem("_Delete", "Del", () => DeleteSelected(ui), new Key()),
+                    // Hotkeys here avoid V/n/I/D/U/R, already taken by this menu's other items.
+                    new MenuItem("Nudge U_p", "^Shift+Up", () => NudgeSelected(ui, NudgeDir.Up), new Key()),
+                    new MenuItem("Nudge Do_wn", "^Shift+Down", () => NudgeSelected(ui, NudgeDir.Down), new Key()),
+                    new MenuItem("Nudge _Left", "^Shift+Left", () => NudgeSelected(ui, NudgeDir.Left), new Key()),
+                    new MenuItem("Nudge Ri_ght", "^Shift+Right", () => NudgeSelected(ui, NudgeDir.Right), new Key()),
                     new MenuItem("_Undo", "^Z", () => DoUndo(ui), new Key()),
                     new MenuItem("_Redo", "^Y", () => DoRedo(ui), new Key()),
                 }),
@@ -375,6 +380,7 @@ namespace Fux
                 if (!ui.Editing && e.KeyCode == Key.Z.WithCtrl.KeyCode) { DoUndo(ui); e.Handled = true; }
                 else if (!ui.Editing && e.KeyCode == Key.Y.WithCtrl.KeyCode) { DoRedo(ui); e.Handled = true; }
                 else if (!ui.Editing && e.KeyCode == Key.DeleteChar.KeyCode) { DeleteSelected(ui); e.Handled = true; }
+                else if (!ui.Editing && IsNudgeKey(e, out var nudge)) { NudgeSelected(ui, nudge); e.Handled = true; }
                 else if (e.KeyCode == Key.F5.KeyCode) { ToggleTheme(ui); e.Handled = true; }
             };
 
@@ -624,6 +630,56 @@ namespace Fux
             return null;
         }
 
+        // Ctrl+Shift+Arrow nudges the selected node: up/down reorder it among its siblings,
+        // left/right change its level. Refusals are quiet (see TryNudge) — running into the
+        // edge of a document should feel like running into the end of a list.
+        private static void NudgeSelected(Ui ui, NudgeDir dir)
+        {
+            if (ui == null || ui.Editing) return;
+            var err = TryNudge(ui, ui.Tree.SelectedObject, dir);
+            if (err != null)
+                ModalQuery(ui, "Move failed", err, "OK");
+        }
+
+        // Push a nudge through the undo stack. Returns null when it moved *or* when there was
+        // simply nowhere to go (NudgeBlocked), else the reason worth interrupting the user for
+        // — in practice only an attribute name that already exists on the parent element.
+        internal static string TryNudge(Ui ui, XmlNode node, NudgeDir dir)
+        {
+            NudgeNode cmd;
+            try
+            {
+                cmd = new NudgeNode(node, dir);
+            }
+            catch (NudgeBlocked)
+            {
+                return null;
+            }
+            catch (ArgumentException ex)
+            {
+                return ex.Message;
+            }
+            ui.Undo.Push(cmd);
+            return null;
+        }
+
+        // Upstream's nudge chord is Ctrl+Shift+Arrow (XmlNotepad/XmlTreeView.cs, OnKeyDown).
+        // Ctrl+Arrow is accepted as an alias because plenty of terminals send no CSI modifier
+        // at all for Ctrl+Shift+Arrow (macOS Terminal.app among them), and neither combination
+        // means anything else in fux.
+        private static bool IsNudgeKey(Key key, out NudgeDir dir)
+        {
+            dir = NudgeDir.Up;
+            if (Matches(key, Key.CursorUp)) { dir = NudgeDir.Up; return true; }
+            if (Matches(key, Key.CursorDown)) { dir = NudgeDir.Down; return true; }
+            if (Matches(key, Key.CursorLeft)) { dir = NudgeDir.Left; return true; }
+            if (Matches(key, Key.CursorRight)) { dir = NudgeDir.Right; return true; }
+            return false;
+
+            static bool Matches(Key key, Key arrow)
+                => key.KeyCode == arrow.WithCtrl.WithShift.KeyCode || key.KeyCode == arrow.WithCtrl.KeyCode;
+        }
+
         // Push a rename through the undo stack. Returns null on success, or the reason the
         // name was rejected (RenameNode's constructor validates via XmlConvert.VerifyName).
         internal static string TryRename(Ui ui, XmlNode node, string newName)
@@ -659,6 +715,15 @@ namespace Fux
         private static void AfterUndoableChange(Ui ui, XmlNotepad.Command cmd)
         {
             if (ui == null) return;
+            // A command that moved a node between containers has to rebuild both ends: v2's
+            // Branch.Refresh is single-level, so refreshing only the node's new parent would
+            // leave the old one holding a branch for a child it no longer has — the node would
+            // render in both places at once. Doing this first means RefreshTreeFor below still
+            // has the last word on selection (dropping a branch that holds SelectedObject makes
+            // v2 fall the selection back to its parent).
+            if (cmd is IContainerCommand moved)
+                foreach (var c in moved.Containers)
+                    if (c is XmlElement ce) ui.Tree.RefreshObject(ce, false);
             if ((cmd as INodeCommand)?.Node is XmlNode node)
                 RefreshTreeFor(ui, node);
             var sel = ui.Tree.SelectedObject;
@@ -688,8 +753,38 @@ namespace Fux
                     ui.Tree.ExpandAll();
                 }
             }
+            ExpandTo(ui, node);
+            ExpandSubtree(ui, node);
             ui.Tree.EnsureVisible(node);
             ui.Tree.SelectedObject = node;
+        }
+
+        // Open every container above the node. Without this a node that lands inside a collapsed
+        // element — a fresh insert, or a demote into a sibling that was never expanded (ExpandAll
+        // only ever ran over the document as loaded) — is silently invisible: v2 resolves an
+        // object to a branch through the visible line map, so EnsureVisible and SelectedObject
+        // both no-op on it. Expand top-down, since child branches are built lazily as their
+        // parent opens.
+        private static void ExpandTo(Ui ui, XmlNode node)
+        {
+            var chain = new List<XmlNode>();
+            for (var p = node is XmlAttribute a ? (XmlNode)a.OwnerElement : node.ParentNode;
+                 p is XmlElement; p = p.ParentNode)
+                chain.Add(p);
+            for (int i = chain.Count - 1; i >= 0; i--)
+                ui.Tree.Expand(chain[i]);
+        }
+
+        // fux shows a document fully expanded (the tree ExpandAll's at load), so a node that has
+        // just been re-branched — moved to another container, or put back by an undo — needs its
+        // subtree reopened as well: v2 builds those branches collapsed, which would swallow
+        // everything underneath it. Top-down again, for the same lazy-branch reason.
+        private static void ExpandSubtree(Ui ui, XmlNode node)
+        {
+            if (node is not XmlElement) return;
+            ui.Tree.Expand(node);
+            foreach (var c in GetChildren(node))
+                ExpandSubtree(ui, c);
         }
 
         // Re-run validation over the (possibly edited) DOM and refresh the error pane.
@@ -828,10 +923,16 @@ namespace Fux
 
             if (n.NodeType == XmlNodeType.Element || n.NodeType == XmlNodeType.Document)
                 foreach (XmlNode c in n.ChildNodes)
-                    if (c.NodeType != XmlNodeType.Text && c.NodeType != XmlNodeType.CDATA &&
-                        c.NodeType != XmlNodeType.Whitespace && c.NodeType != XmlNodeType.SignificantWhitespace)
+                    if (IsShown(c))
                         yield return c;
         }
+
+        // Does the tree give this child a row of its own? Text-ish content is folded into its
+        // element's value instead (see GetValue), so it never appears as a node — which also
+        // means nudging must step over it (NudgeNode.PrevInBand/NextInBand).
+        internal static bool IsShown(XmlNode n)
+            => n.NodeType != XmlNodeType.Text && n.NodeType != XmlNodeType.CDATA &&
+               n.NodeType != XmlNodeType.Whitespace && n.NodeType != XmlNodeType.SignificantWhitespace;
 
         internal static string GetLabel(XmlNode n)
         {

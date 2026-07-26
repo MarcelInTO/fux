@@ -12,6 +12,16 @@ namespace Fux
         XmlNode Node { get; }
     }
 
+    // A command that moves a node between two containers reports both, because v2's
+    // Branch.Refresh rebuilds one level only (verified against Terminal.Gui 2.4.17: it
+    // re-fetches its own children and, with startAtTop, its ancestors — never its
+    // descendants). Refreshing just the node's new parent would leave the container it left
+    // holding a stale branch, so the node would appear in both places at once.
+    internal interface IContainerCommand
+    {
+        IEnumerable<XmlNode> Containers { get; }
+    }
+
     // Pure-DOM value edit, driven by the reused Model UndoManager (Model/UndoManager.cs).
     // The DOM logic mirrors XmlNotepad's EditNodeValue (XmlNotepad/Commands.cs), minus the
     // WinForms XmlTreeView sync woven through it — fux refreshes its TreeView from the
@@ -415,6 +425,187 @@ namespace Fux
                 _container.InsertBefore(_node, _ref); // null _ref appends at the end
             }
             _current = _node;
+        }
+    }
+
+    internal enum NudgeDir { Up, Down, Left, Right }
+
+    // A nudge with nowhere to go: already first/last in its band, no preceding element to
+    // move into, nothing above the document root to promote to. Callers swallow these
+    // silently — running into the edge should feel like pressing Down at the end of a list,
+    // not like an error. Every other refusal is a plain ArgumentException and reaches the
+    // user as a message.
+    internal sealed class NudgeBlocked : ArgumentException
+    {
+        public NudgeBlocked(string message) : base(message) { }
+    }
+
+    // Pure-DOM reorder (Up/Down) and re-level (Left promotes out of the parent, Right demotes
+    // into the preceding sibling), cribbed from upstream's NudgeNode + MoveNode pair
+    // (XmlNotepad/Commands.cs). Only their DOM moves and position rules carry over: upstream's
+    // MoveNode is written against XmlTreeNode/TreeParent and cannot be lifted.
+    //
+    // Two deliberate departures from upstream:
+    //   * a nudge stays inside the selected node's own display band — an attribute among its
+    //     owner's attributes, everything else among the parent's shown children — where
+    //     upstream's Up/Down walk can cross into a neighbouring parent. Staying in the band
+    //     makes every nudge exactly undone by its opposite, which is what makes the operation
+    //     safe to hold a key down on.
+    //   * promoting out of the document element is refused. fux's tree is rooted at
+    //     DocumentElement, so a node moved to document level would silently vanish from view.
+    //
+    // Target resolution and validation happen in the constructor, so a refused nudge pushes
+    // nothing. Undo re-anchors on the successor the node had before the move — the raw DOM
+    // successor, so it is exact even when the model preserves whitespace — the same
+    // exact-position trick DeleteNode uses.
+    internal sealed class NudgeNode : Command, INodeCommand, IContainerCommand
+    {
+        private readonly XmlNode _node;
+        private readonly XmlElement _from;   // container it leaves
+        private readonly XmlNode _fromRef;   // its successor there (null = it was last)
+        private readonly XmlElement _to;     // container it joins (== _from for Up/Down)
+        private readonly XmlNode _toRef;     // insert before this (null = append)
+
+        public NudgeNode(XmlNode node, NudgeDir dir)
+        {
+            if (node == null) throw new ArgumentException("nothing is selected");
+            if (node == node.OwnerDocument?.DocumentElement)
+                throw new NudgeBlocked("cannot nudge the document root");
+
+            var attr = node as XmlAttribute;
+            // Attributes report ParentNode == null in System.Xml, hence OwnerElement.
+            _from = (attr != null ? attr.OwnerElement : node.ParentNode as XmlElement)
+                ?? throw new NudgeBlocked("cannot nudge a node outside the document root");
+            _node = node;
+            _fromRef = attr != null ? NextAttribute(_from, attr) : node.NextSibling;
+
+            switch (dir)
+            {
+                case NudgeDir.Up:
+                {
+                    var prev = PrevInBand(node)
+                        ?? throw new NudgeBlocked($"already the first {BandName(node)}");
+                    _to = _from;
+                    _toRef = prev; // landing in front of the predecessor swaps the two
+                    break;
+                }
+
+                case NudgeDir.Down:
+                {
+                    var next = NextInBand(node)
+                        ?? throw new NudgeBlocked($"already the last {BandName(node)}");
+                    _to = _from;
+                    // To land after `next`, anchor on whatever follows it (null appends).
+                    _toRef = attr != null
+                        ? NextAttribute(_from, (XmlAttribute)next)
+                        : next.NextSibling;
+                    break;
+                }
+
+                case NudgeDir.Left:
+                {
+                    // The document element's parent is the XmlDocument, so this also rejects
+                    // promoting a top-level node to document level.
+                    _to = _from.ParentNode as XmlElement
+                        ?? throw new NudgeBlocked("cannot promote out of the document root");
+                    if (attr != null)
+                    {
+                        if (_to.Attributes.GetNamedItem(attr.LocalName, attr.NamespaceURI) != null)
+                            throw new ArgumentException(
+                                $"<{_to.Name}> already has an attribute named '{attr.Name}'");
+                        _toRef = null; // attributes can only land among attributes: append
+                    }
+                    else
+                    {
+                        // Upstream's rule: the first of several children lands *before* its old
+                        // parent, so left-then-right is a round trip; anything else lands after.
+                        bool firstOfSeveral = PrevInBand(node) == null && NextInBand(node) != null;
+                        _toRef = firstOfSeveral ? _from : _from.NextSibling;
+                    }
+                    break;
+                }
+
+                default: // NudgeDir.Right
+                {
+                    // The preceding sibling becomes the new parent. Attributes have only other
+                    // attributes in front of them, so they can never demote.
+                    _to = PrevInBand(node) as XmlElement
+                        ?? throw new NudgeBlocked(
+                            $"no preceding sibling element to move this {BandName(node)} into");
+                    _toRef = null; // append as its last child (upstream's InsertPosition.Child)
+                    break;
+                }
+            }
+        }
+
+        public XmlNode Node => _node; // a move never swaps node instances
+        public override string Name => "Nudge";
+        public override bool IsNoop => false; // the constructor refuses the no-op cases
+        public IEnumerable<XmlNode> Containers { get { yield return _from; yield return _to; } }
+
+        public override void Do() => Move(_from, _to, _toRef);
+        public override void Redo() => Do();
+        public override void Undo() => Move(_to, _from, _fromRef);
+
+        // Detach from `from`, reattach into `to` directly before `before` (null appends).
+        private void Move(XmlElement from, XmlElement to, XmlNode before)
+        {
+            if (_node is XmlAttribute a)
+            {
+                from.RemoveAttributeNode(a);
+                if (before is XmlAttribute ba) to.Attributes.InsertBefore(a, ba);
+                else to.SetAttributeNode(a);
+            }
+            else
+            {
+                from.RemoveChild(_node);
+                if (before != null) to.InsertBefore(_node, before);
+                else to.AppendChild(_node);
+            }
+        }
+
+        // The two display bands the tree presents under an element, in order.
+        private static string BandName(XmlNode n) => n is XmlAttribute ? "attribute" : "child";
+
+        // Neighbours within the node's own band: attributes step through the owner's attribute
+        // collection, everything else through the shown siblings (Program.IsShown skips the
+        // text-ish nodes the tree folds into element values, so a nudge never lands on one).
+        private static XmlNode PrevInBand(XmlNode n)
+        {
+            if (n is XmlAttribute a)
+            {
+                var attrs = a.OwnerElement?.Attributes;
+                int i = IndexOfAttr(attrs, a);
+                return i > 0 ? attrs[i - 1] : null;
+            }
+            for (var p = n.PreviousSibling; p != null; p = p.PreviousSibling)
+                if (Program.IsShown(p)) return p;
+            return null;
+        }
+
+        private static XmlNode NextInBand(XmlNode n)
+        {
+            if (n is XmlAttribute a) return NextAttribute(a.OwnerElement, a);
+            for (var s = n.NextSibling; s != null; s = s.NextSibling)
+                if (Program.IsShown(s)) return s;
+            return null;
+        }
+
+        private static XmlAttribute NextAttribute(XmlElement owner, XmlAttribute a)
+        {
+            var attrs = owner?.Attributes;
+            int i = IndexOfAttr(attrs, a);
+            return i >= 0 && i + 1 < attrs.Count ? attrs[i + 1] : null;
+        }
+
+        // By reference: two attributes can share a name only transiently, and Equals on
+        // XmlAttribute is identity anyway — this keeps the intent explicit.
+        private static int IndexOfAttr(XmlAttributeCollection attrs, XmlAttribute a)
+        {
+            if (attrs == null) return -1;
+            for (int i = 0; i < attrs.Count; i++)
+                if (ReferenceEquals(attrs[i], a)) return i;
+            return -1;
         }
     }
 }
