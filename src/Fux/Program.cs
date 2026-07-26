@@ -38,7 +38,12 @@ namespace Fux
                 System.IO.Directory.CreateDirectory(dir);
                 foreach (var xsd in System.IO.Directory.GetFiles(System.IO.Path.GetDirectoryName(file), "*.xsd"))
                     System.IO.File.Copy(xsd, System.IO.Path.Combine(dir, System.IO.Path.GetFileName(xsd)), true);
-                var tmp = System.IO.Path.Combine(dir, System.IO.Path.GetFileName(file));
+                // The underscore in the copy's name is deliberate: the tree pane's title is the
+                // file name, and Terminal.Gui would read '_' as a hotkey marker and swallow it
+                // (see NoHotKey). Naming the scratch copy this way makes the section-1 title
+                // check a standing regression test for that, on every fixture and in CI —
+                // no fixture in the repo happens to have an underscore in its name.
+                var tmp = System.IO.Path.Combine(dir, "fux_drill_" + System.IO.Path.GetFileName(file));
                 System.IO.File.Copy(file, tmp, true);
                 file = tmp;
             }
@@ -206,6 +211,15 @@ namespace Fux
         // Drill introspection: the engine instance behind the UI.
         internal static XmlCache Model => _model;
 
+        // Turns the '_'-means-hotkey convention off for one view. Any pane or dialog whose
+        // title carries document text — a file name, a node name — needs this, or Terminal.Gui
+        // eats the underscore and the character after it stops being plain text. The switch is
+        // per-view by design, and it is the right lever rather than doubling the underscores in
+        // the string: escaping would be a rule every future title has to remember, and it isn't
+        // even uniform across widgets — TextView ships with hotkeys already disabled, so a
+        // doubled '_' renders doubled there. Menus keep the convention: theirs is deliberate.
+        private static readonly System.Text.Rune NoHotKey = new System.Text.Rune('￿');
+
         internal static Ui BuildUi(string file)
         {
             // v2 is instance-based (the static Application facade is marked obsolete).
@@ -280,6 +294,10 @@ namespace Fux
                 X = 0, Y = 1, Width = Dim.Percent(33), Height = Dim.Fill(ErrorPaneH + 1),
                 Title = "Tree", BorderStyle = LineStyle.Single,
             };
+            // The tree pane's title is the file name, so it must not be read as a hotkey hint:
+            // Terminal.Gui treats '_' as the marker for the next character's accelerator and
+            // swallows it, which drew "under_score.xml" as "underscore.xml". See NoHotKey.
+            tree.HotKeySpecifier = NoHotKey;
             tree.TreeBuilder = new DelegateTreeBuilder<XmlNode>(n => GetChildren(n), n => System.Linq.Enumerable.Any(GetChildren(n)));
             tree.AspectGetter = n => GetLabel(n);
             tree.ColorGetter = n => NodeScheme(n); // per-kind row colors, vim xml.vim style
@@ -296,6 +314,11 @@ namespace Fux
                 Title = "Value", BorderStyle = LineStyle.Single,
             };
 #pragma warning restore CS0618
+
+            // Find reports into this pane's title, which can carry the user's search term.
+            // TextView already ships with hotkeys disabled; saying so keeps that from being a
+            // silent dependency on the widget's default.
+            valueView.HotKeySpecifier = NoHotKey;
 
             // Two-pane sync: the tree drives, the value pane reflects the selection.
             tree.SelectionChanged += (s, e) =>
@@ -586,6 +609,7 @@ namespace Fux
                 Title = $"Insert at {GetLabel(n)}",
                 Width = 50, Height = 12,
             };
+            d.HotKeySpecifier = NoHotKey; // the title carries a node name — see NoHotKey
             d.Add(new Label { X = 1, Y = 0, Text = "Name (element/attribute/PI):" }, field, kindSel, posSel);
             d.AddButton(new Button { Text = "Cancel" }); // Result 0
             d.AddButton(new Button { Text = "OK" });     // Result 1; last added = default (Enter)

@@ -29,7 +29,11 @@ namespace Fux
             // The tree pane title doubles as the document title (file basename).
             var docTitle = file == null ? "Tree" : System.IO.Path.GetFileName(file);
             var screen = ScreenText(app);
-            Check(screen.Contains(docTitle), $"tree pane titled '{docTitle}'");
+            // Row 1 is the tree pane's top border, where its title is drawn (row 0 is the menu).
+            // Searching the whole screen would be a weak oracle: the validation pane quotes the
+            // file name in its diagnostics, so a mangled title still "appears" somewhere. The
+            // scratch copy's name carries an underscore on purpose — see the note in Main.
+            Check(ScreenRow(app, 1).Contains(docTitle), $"tree pane titled '{docTitle}'");
             Check(screen.Contains("Value"), "value pane title renders");
             Check(screen.Contains("Validation:") || screen.Contains("(no file loaded)"), "validation summary renders");
             Check(screen.Contains("┌") && screen.Contains("│") && screen.Contains("┘"), "pane borders render");
@@ -476,6 +480,16 @@ namespace Fux
                 Check(DoFind("fuxzzznotthere", FindFlags.Normal, SearchFilter.Everything)
                         .StartsWith("no match"), "a term with no hits reports no match");
 
+                // A term carrying an underscore proves the title escape end to end: without
+                // Program.EscapeTitle, Terminal.Gui eats the '_' as a hotkey marker and the
+                // pane title reads "fuxnosuchterm". Nothing else on screen holds this string,
+                // so a hit here can only have come from the title.
+                Check(DoFind("fux_no_such_term", FindFlags.Normal, SearchFilter.Everything)
+                        .StartsWith("no match"), "an underscored term reports no match");
+                app.LayoutAndDraw(true);
+                Check(ScreenText(app).Contains("fux_no_such_term"),
+                    "an underscore survives into the pane title");
+
                 // Case sensitivity, on the same two names.
                 ui.Tree.SelectedObject = rootF;
                 Check(DoFind("FUXFIND", FindFlags.Normal, SearchFilter.Everything) == "1/2",
@@ -600,6 +614,9 @@ namespace Fux
             Check(sawYellow, "attribute rows render yellow");
             if (expectErrors) Check(sawRed, "error rows render red");
         }
+
+        private static string ScreenRow(Terminal.Gui.App.IApplication app, int row)
+            => ScreenText(app).Split('\n')[row];
 
         private static string ScreenText(Terminal.Gui.App.IApplication app)
         {
