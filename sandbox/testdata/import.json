@@ -1,0 +1,10 @@
+{
+  "team": "platform",
+  "size": 2,
+  "active": true,
+  "members": [
+    { "name": "Ada", "role": "engineer", "langs": ["asm", "analytical"] },
+    { "name": "Grace", "role": "admiral", "langs": ["cobol"] }
+  ],
+  "office": { "city": "London", "floor": 3 }
+}

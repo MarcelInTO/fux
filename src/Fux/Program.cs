@@ -78,38 +78,26 @@ namespace Fux
             return dump ? Dump() : validate ? Validate() : drill ? Drill.Run(file) : RunUi(file);
         }
 
-        // Load a document the way XmlNotepad's FormMain.OpenFile does: sniff the type from
-        // the extension (Model's FileEntity.SetMimeType mapping) and coerce HTML into a DOM
-        // via SgmlReader (FormMain.ImportHtml settings: HTML doctype, lower-case folding,
-        // significant whitespace). Everything else is a plain XML load. Note the same
-        // parity gap as upstream: saving an HTML-imported document writes XML.
+        // Load a document the way XmlNotepad's FormMain.OpenFile does: sniff the type from the
+        // extension (Model's FileEntity.SetMimeType mapping) and coerce HTML, JSON and CSV into
+        // a DOM; everything else is a plain XML load. See Import for the per-format wiring.
         private static void LoadDocument(string file)
         {
             // Record how this file is written before parsing it, so a later save can reproduce
             // it. Done first, and unconditionally: if the parse throws, the model is left
             // holding nothing and the stale conventions of the previous document must not
-            // outlive it. (For an HTML import these describe the HTML source while the save
-            // writes XML — the newline, indent and BOM still carry over usefully, and the
-            // declaration sniff simply finds none.)
+            // outlive it. (For an import these describe the source while the save writes XML —
+            // the newline, indent and BOM still carry over usefully, and there is no
+            // declaration to find.)
             _model.Format = XmlFormat.Sniff(file);
+            _model.PrettyPrint = false;
 
-            var ext = System.IO.Path.GetExtension(file).ToLowerInvariant();
-            if (ext == ".htm" || ext == ".html")
-            {
-                using var text = new System.IO.StreamReader(file); // BOM-sniffing, UTF-8 default
-                using var reader = new Sgml.SgmlReader
-                {
-                    DocType = "HTML",
-                    CaseFolding = Sgml.CaseFolding.ToLower,
-                    InputStream = text,
-                    WhitespaceHandling = WhitespaceHandling.Significant,
-                };
-                _model.Load(reader, file);
-            }
-            else
-            {
-                _model.Load(file);
-            }
+            // An imported document has no whitespace nodes of its own, so the writer has to
+            // synthesize indentation for it or the whole thing lands on one line. This cannot
+            // be inferred from "the DOM contains no whitespace" — a genuinely single-line XML
+            // file has none either, and reformatting that would be the very churn this all
+            // exists to avoid.
+            _model.PrettyPrint = Import.Load(_model, file);
         }
 
         // --------------------------------------------------------------------
@@ -223,7 +211,7 @@ namespace Fux
         }
 
         // Drill introspection: the engine instance behind the UI.
-        internal static XmlCache Model => _model;
+        internal static FuxCache Model => _model;
 
         // Turns the '_'-means-hotkey convention off for one view. Any pane or dialog whose
         // title carries document text — a file name, a node name — needs this, or Terminal.Gui

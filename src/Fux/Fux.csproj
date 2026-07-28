@@ -19,6 +19,14 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Xml.SgmlReader" Version="1.8.30" />
+    <!--
+      JSON import, matching XmlNotepad's FormMain.ImportJson. Newtonsoft rather than
+      System.Text.Json because only it has DeserializeXmlNode: the JSON-to-XML mapping
+      (arrays to repeated elements, "@name" to attributes, "#text", name sanitizing) is a
+      set of conventions, and hand-rolling them would invent a different dialect from the
+      one XmlNotepad users already have. Upstream pins 13.0.x too.
+    -->
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.*" />
     <PackageReference Include="Terminal.Gui" Version="2.4.*" />
   </ItemGroup>
 

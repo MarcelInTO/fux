@@ -33,7 +33,12 @@ namespace Fux
 
             // --- 1. Chrome: bordered panes render with their titles; summary on the error pane.
             // The tree pane title doubles as the document title (file basename).
-            var docTitle = file == null ? "Tree" : System.IO.Path.GetFileName(file);
+            // The model's own path, not the source path: an import is retargeted to a sibling
+            // .xml so ^S cannot overwrite the .csv/.json/.html it came from, and the pane title
+            // follows the model. The scratch copy's underscore survives either way, which is
+            // what keeps this a standing check on the hotkey-marker bug (see Main).
+            var docTitle = file == null ? "Tree"
+                : System.IO.Path.GetFileName(Program.Model.FileName ?? file);
             var screen = ScreenText(app);
             // Row 1 is the tree pane's top border, where its title is drawn (row 0 is the menu).
             // Searching the whole screen would be a weak oracle: the validation pane quotes the
@@ -57,10 +62,30 @@ namespace Fux
                 var ext1 = System.IO.Path.GetExtension(file).ToLowerInvariant();
                 var probe1 = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(file), "fux_drill_pristine.xml");
                 Program.Model.SaveCopy(probe1);
-                if (ext1 != ".htm" && ext1 != ".html") // an HTML import deliberately saves as XML
+                if (!Import.IsImport(ext1)) // an import deliberately saves as XML, not as itself
                     Check(SameBytes(sourceBytes, System.IO.File.ReadAllBytes(probe1)),
                         "an unedited save reproduces the source file byte for byte");
                 Check(!Program.Model.Dirty, "SaveCopy leaves the model untouched");
+
+                if (Import.IsImport(ext1))
+                {
+                    // Everything fux imports is written back as XML, so the model must point at
+                    // a sibling .xml. Aimed at the source, ^S would replace the user's CSV or
+                    // HTML with XML — losing the original outright. Stated in terms of what the
+                    // path has to look like, NOT by calling Import.XmlPathFor: comparing the
+                    // function against itself passes however the retarget is broken.
+                    string target = Program.Model.FileName ?? "";
+                    Check(target != file && target.EndsWith(".xml", StringComparison.OrdinalIgnoreCase)
+                          && System.IO.Path.GetDirectoryName(target) == System.IO.Path.GetDirectoryName(file),
+                        $"an import retargets the model to a sibling .xml (got '{target}')");
+                }
+
+                // A reader that yields no whitespace leaves the document with no layout at all,
+                // so the writer has to supply it — otherwise a CSV of a thousand rows saves as
+                // one enormous line.
+                if (Program.Model.PrettyPrint)
+                    Check(System.IO.File.ReadAllText(probe1).Contains("\n  <"),
+                        "a document with no layout of its own is written indented");
             }
 
             // --- 2. TrueColor + zero-leak: every cell is painted, and painted with a theme
@@ -151,7 +176,10 @@ namespace Fux
                 app.Keyboard.RaiseKeyDownEvent(Key.S.WithCtrl);
                 Check(!Program.Model.Dirty, "^S saves and clears dirty");
                 Check(!ui.Tree.Title.EndsWith(" *"), "dirty marker clears after save");
-                Check(System.IO.File.ReadAllText(file).Contains(before + "-edited"), "saved file contains the edited value");
+                // Read back the path the model actually writes to, which for an import is the
+                // retargeted .xml rather than the source it was coerced from.
+                Check(System.IO.File.ReadAllText(Program.Model.FileName).Contains(before + "-edited"),
+                    "saved file contains the edited value");
 
                 // Enter on the tree is the discoverable alias for F2's start-edit.
                 app.Keyboard.RaiseKeyDownEvent(Key.Enter);
@@ -644,7 +672,9 @@ namespace Fux
                     // a block-formatted one gives the new node its own indented line, while a
                     // container written inline must be left inline. Adding a node is not a
                     // licence to reformat the document around it, in either direction.
-                    bool blockLaidOut = XmlLayout.ShouldIndent(rootB);
+                    // An import has no whitespace nodes, so ShouldIndent reads it as inline — but
+                    // the writer synthesizes layout for it, so the output is block either way.
+                    bool blockLaidOut = XmlLayout.ShouldIndent(rootB) || Program.Model.PrettyPrint;
                     // A sibling to measure against. "Correctly indented" means "indented like
                     // the neighbours", not "indented at all" — an HTML import's root children
                     // sit at column zero, and matching that is right, not a bug.
@@ -735,6 +765,17 @@ namespace Fux
                 $"F9 activates the menu bar (handled={f9Handled}, popover={(popover == null ? "none" : popover.GetType().Name)})");
             app.Keyboard.RaiseKeyDownEvent(Key.Q.WithCtrl);
             Check(ui.Top.StopRequested, "^Q requests stop");
+
+            // Last, because it can only be judged once every save in the run has happened: an
+            // imported source file must still be byte-for-byte what it was. The earlier
+            // retarget check states the intent; this states the consequence, and it is the one
+            // that would catch a ^S path that ignored the retarget and wrote the .csv anyway.
+            if (file != null && sourceBytes != null
+                && Import.IsImport(System.IO.Path.GetExtension(file).ToLowerInvariant()))
+            {
+                Check(System.IO.File.Exists(file) && SameBytes(sourceBytes, System.IO.File.ReadAllBytes(file)),
+                    "no save in the whole run touched the imported source file");
+            }
 
             app.End(token);
             app.Dispose();

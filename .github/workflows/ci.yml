@@ -105,19 +105,30 @@ jobs:
       # (F6 focus ring, Enter-to-jump, F9 menu, ^Q), and asserts against the driver's output
       # buffer — borders/titles render, every cell painted, only theme-palette backgrounds.
       # Windows is skipped: no script(1)/PTY equivalent on the runner.
+      #
+      # Run over one document of each kind fux can open. The drill is fixture-agnostic, and
+      # the import paths differ from the XML one in ways only a real document exercises: a
+      # JSON/CSV import has no whitespace of its own (so the writer must supply layout) and
+      # is retargeted to a sibling .xml (so a save cannot overwrite the source).
       - name: TUI drill (headless interactive self-test)
         if: runner.os != 'Windows'
         shell: bash
         run: |
-          set +e
-          if [ "$RUNNER_OS" = "macOS" ]; then
-            script -q /dev/null dotnet run --project src/Fux -c Release -- --drill src/UnitTests/emp-invalid.xml > drill.out 2>&1
-          else
-            script -qec "dotnet run --project src/Fux -c Release -- --drill src/UnitTests/emp-invalid.xml" /dev/null > drill.out 2>&1
-          fi
-          set -e
-          sed 's/\x1b\[[0-9;?]*[a-zA-Z]//g' drill.out | grep -aE '^\s*\[(ok|FAIL)\]|DRILL:' || true
-          grep -aq "DRILL: PASS" drill.out || { echo "::error::TUI drill failed"; exit 1; }
+          fail=0
+          for f in src/UnitTests/emp-invalid.xml sandbox/testdata/import.json sandbox/testdata/import.csv; do
+            echo "::group::drill $f"
+            set +e
+            if [ "$RUNNER_OS" = "macOS" ]; then
+              script -q /dev/null dotnet run --project src/Fux -c Release -- --drill "$f" > drill.out 2>&1
+            else
+              script -qec "dotnet run --project src/Fux -c Release -- --drill $f" /dev/null > drill.out 2>&1
+            fi
+            set -e
+            sed 's/\x1b\[[0-9;?]*[a-zA-Z]//g' drill.out | grep -aE '^\s*\[(ok|FAIL)\]|DRILL:' || true
+            echo "::endgroup::"
+            grep -aq "DRILL: PASS" drill.out || { echo "::error::TUI drill failed on $f"; fail=1; }
+          done
+          [ "$fail" -eq 0 ]
 
       # Self-contained single-file binary (bundles the .NET runtime; no install needed to run).
       - name: Publish single-file binary (${{ matrix.rid }})

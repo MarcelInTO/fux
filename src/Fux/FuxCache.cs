@@ -22,6 +22,14 @@ namespace Fux
         /// </summary>
         public XmlFormat Format { get; set; } = XmlFormat.Default;
 
+        /// <summary>
+        /// Whether this document needs indentation synthesized on save. True for JSON and CSV
+        /// imports: their readers produce no whitespace nodes, so with nothing to preserve the
+        /// document would be written on a single line. Set by the load path rather than
+        /// inferred, because a one-line XML file also has no whitespace and must stay as it is.
+        /// </summary>
+        public bool PrettyPrint { get; set; }
+
         public FuxCache(IServiceProvider site, SchemaCache schemaCache, DelayedActions handler)
             : base(site, schemaCache, handler)
         {
@@ -31,8 +39,9 @@ namespace Fux
         {
             // Whitespace preservation and synthesized indentation are alternatives, never both:
             // when the document carries its own layout as whitespace nodes, adding more would
-            // indent it a second time on every save.
-            bool indent = Document == null || !Document.PreserveWhitespace;
+            // indent it a second time on every save. An import has no layout to preserve, so it
+            // is the one case where preservation is on and indentation is still wanted.
+            bool indent = PrettyPrint || Document == null || !Document.PreserveWhitespace;
 
             // Build the whole file before opening it, so a serialization failure leaves the
             // previous contents on disk intact — the same guarantee the base implementation
