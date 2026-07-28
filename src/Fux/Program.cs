@@ -13,7 +13,7 @@ namespace Fux
 {
     internal static class Program
     {
-        private static XmlCache _model;
+        private static FuxCache _model;
 
         private static int Main(string[] args)
         {
@@ -54,7 +54,13 @@ namespace Fux
             settings.StartupPath = AppContext.BaseDirectory;
             settings.Resolver = new XmlUrlResolver();
             var site = new EngineSite(settings);
-            _model = new XmlCache(site, new SchemaCache(site), new DelayedActions(a => a()));
+            // Keep the document's own whitespace in the DOM. It is what makes a save reproduce
+            // the file that was opened: without it the layout never reaches the tree at all and
+            // every save re-indents the whole document from scratch. The tree is unaffected —
+            // GetChildren already filters whitespace out (see IsShown) and GetValue still reads
+            // a container as having no scalar value.
+            settings["PreserveWhitespace"] = true;
+            _model = new FuxCache(site, new SchemaCache(site), new DelayedActions(a => a()));
 
             if (file != null)
             {
@@ -79,6 +85,14 @@ namespace Fux
         // parity gap as upstream: saving an HTML-imported document writes XML.
         private static void LoadDocument(string file)
         {
+            // Record how this file is written before parsing it, so a later save can reproduce
+            // it. Done first, and unconditionally: if the parse throws, the model is left
+            // holding nothing and the stale conventions of the previous document must not
+            // outlive it. (For an HTML import these describe the HTML source while the save
+            // writes XML — the newline, indent and BOM still carry over usefully, and the
+            // declaration sniff simply finds none.)
+            _model.Format = XmlFormat.Sniff(file);
+
             var ext = System.IO.Path.GetExtension(file).ToLowerInvariant();
             if (ext == ".htm" || ext == ".html")
             {
@@ -644,7 +658,7 @@ namespace Fux
             InsertNewNode cmd;
             try
             {
-                cmd = new InsertNewNode(anchor, kind, pos, name);
+                cmd = new InsertNewNode(anchor, kind, pos, name, _model.Format.IndentChars);
             }
             catch (Exception ex) when (ex is XmlException || ex is ArgumentException)
             {
@@ -823,7 +837,7 @@ namespace Fux
             NudgeNode cmd;
             try
             {
-                cmd = new NudgeNode(node, dir);
+                cmd = new NudgeNode(node, dir, _model.Format.IndentChars);
             }
             catch (NudgeBlocked)
             {

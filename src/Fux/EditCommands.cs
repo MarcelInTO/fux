@@ -245,10 +245,27 @@ namespace Fux
         private readonly XmlAttribute _refAttr; // attribute sibling anchor
         private readonly bool _before;
         private readonly XmlAttribute _nsDecl;  // auto-generated xmlns:prefix, if needed
+        private readonly string _indentChars;   // one indent level, from the document's format
         private XmlNode _current;
 
+        // Layout maintenance. The document keeps its whitespace (see XmlLayout), so a new node
+        // needs the line break and indent that put it on its own line, and a container that had
+        // no children also needs one before its end tag. Both are created once and reused, so
+        // undo and redo move the very same nodes rather than equivalent copies.
+        private XmlNode _ws;             // indentation in front of the new node
+        private XmlNode _wsClose;        // indentation before the end tag of a container we opened
+        private XmlNode _tailAnchor;     // the container's trailing indent, when appending
+        private bool _containerWasEmpty; // container was <a/>; undo has to restore that spelling
+        private bool _planned;
+
         public InsertNewNode(XmlNode anchor, InsertKind kind, InsertPos pos, string name)
+            : this(anchor, kind, pos, name, "  ")
         {
+        }
+
+        public InsertNewNode(XmlNode anchor, InsertKind kind, InsertPos pos, string name, string indentChars)
+        {
+            _indentChars = indentChars;
             if (anchor == null) throw new ArgumentException("nothing is selected");
             var doc = anchor.OwnerDocument;
             name = name?.Trim();
@@ -319,10 +336,33 @@ namespace Fux
         public override string Name => "Insert";
         public override bool IsNoop => false;
 
-        public override void Do() => Redo();
+        public override void Do()
+        {
+            PlanLayout(); // reads the container as it stands *before* the insert
+            Redo();
+        }
+
+        // Decide once what whitespace this insert needs. Attributes live inside the start tag
+        // and have no layout of their own.
+        private void PlanLayout()
+        {
+            _planned = true;
+            if (_node is XmlAttribute || !XmlLayout.ShouldIndent(_container)) return;
+
+            _containerWasEmpty = _container.IsEmpty;
+            var doc = _container.OwnerDocument;
+            _ws = doc.CreateWhitespace(XmlLayout.ChildIndent(_container, _indentChars));
+            if (XmlLayout.IsChildless(_container))
+                _wsClose = doc.CreateWhitespace(XmlLayout.OwnIndent(_container));
+            else if (_ref == null)
+                // Appending as the last child would land the node *after* the indentation that
+                // sits before the end tag, printing it as `<new/></parent>`. Anchor ahead of it.
+                _tailAnchor = XmlLayout.TrailingWhitespace(_container);
+        }
 
         public override void Redo()
         {
+            if (!_planned) PlanLayout();
             if (_node is XmlAttribute a)
             {
                 if (_refAttr != null)
@@ -343,12 +383,21 @@ namespace Fux
                     if (_before) _container.InsertBefore(_node, _ref);
                     else _container.InsertAfter(_node, _ref);
                 }
+                else if (_tailAnchor != null)
+                {
+                    _container.InsertBefore(_node, _tailAnchor);
+                }
                 else
                 {
                     _container.AppendChild(_node);
                 }
                 // a generated declaration rides the new element (and vanishes with it on undo)
                 if (_nsDecl != null && _node is XmlElement ne) ne.SetAttributeNode(_nsDecl);
+
+                // Order matters: the closing indent is anchored on the new node, so it goes in
+                // while the node is still the last child.
+                if (_wsClose != null) _container.InsertAfter(_wsClose, _node);
+                if (_ws != null) _container.InsertBefore(_ws, _node);
             }
             _current = _node;
         }
@@ -362,7 +411,12 @@ namespace Fux
             }
             else
             {
+                if (_ws != null) _container.RemoveChild(_ws);
+                if (_wsClose != null) _container.RemoveChild(_wsClose);
                 _container.RemoveChild(_node);
+                // Removing the last child of an element leaves it spelled <a></a>, not <a/>.
+                // Without this an insert-then-undo would still show up in a diff.
+                if (_containerWasEmpty) _container.IsEmpty = true;
             }
             _current = _container;
         }
@@ -377,6 +431,7 @@ namespace Fux
         private XmlElement _container;   // parent element / attribute owner
         private XmlNode _ref;            // sibling that followed the node (null = was last)
         private XmlAttribute _refAttr;   // attribute that followed (null = was last)
+        private XmlNode _ws;             // the node's own indentation, removed along with it
         private XmlNode _current;
 
         public DeleteNode(XmlNode node)
@@ -406,7 +461,13 @@ namespace Fux
             {
                 _container = (XmlElement)_node.ParentNode;
                 _ref = _node.NextSibling;
+                // The line break and indent in front of the node exist to put it on its own
+                // line; leaving them behind would turn every delete into a blank line. Taking
+                // the *leading* one keeps the container's trailing indent — the whitespace
+                // before its end tag — intact.
+                _ws = XmlLayout.LeadingWhitespace(_node);
                 _container.RemoveChild(_node);
+                if (_ws != null) _container.RemoveChild(_ws);
             }
             _current = _container;
         }
@@ -423,6 +484,7 @@ namespace Fux
             else
             {
                 _container.InsertBefore(_node, _ref); // null _ref appends at the end
+                if (_ws != null) _container.InsertBefore(_ws, _node);
             }
             _current = _node;
         }
@@ -466,7 +528,21 @@ namespace Fux
         private readonly XmlElement _to;     // container it joins (== _from for Up/Down)
         private readonly XmlNode _toRef;     // insert before this (null = append)
 
-        public NudgeNode(XmlNode node, NudgeDir dir)
+        // Layout maintenance (see XmlLayout). The node travels with the whitespace in front of
+        // it, so a nudge moves a whole line rather than tearing a node out from between two
+        // indents. Promoting or demoting changes the node's depth, so that whitespace is
+        // re-indented — and put back exactly on undo.
+        private readonly XmlNode _ws;        // the node's own indentation
+        private readonly string _fromIndent; // its text at the old depth
+        private readonly string _toIndent;   // its text at the new depth
+        private readonly XmlNode _toClose;   // indent before the end tag of a target we open
+        private readonly bool _toWasEmpty;   // target was <b/>; undo restores that spelling
+
+        public NudgeNode(XmlNode node, NudgeDir dir) : this(node, dir, "  ")
+        {
+        }
+
+        public NudgeNode(XmlNode node, NudgeDir dir, string indentChars)
         {
             if (node == null) throw new ArgumentException("nothing is selected");
             if (node == node.OwnerDocument?.DocumentElement)
@@ -486,7 +562,10 @@ namespace Fux
                     var prev = PrevInBand(node)
                         ?? throw new NudgeBlocked($"already the first {BandName(node)}");
                     _to = _from;
-                    _toRef = prev; // landing in front of the predecessor swaps the two
+                    // Landing in front of the predecessor swaps the two — but in front of the
+                    // predecessor's *indentation*, so the two lines swap rather than the two
+                    // nodes colliding on one.
+                    _toRef = XmlLayout.LeadingWhitespace(prev) ?? prev;
                     break;
                 }
 
@@ -520,7 +599,9 @@ namespace Fux
                         // Upstream's rule: the first of several children lands *before* its old
                         // parent, so left-then-right is a round trip; anything else lands after.
                         bool firstOfSeveral = PrevInBand(node) == null && NextInBand(node) != null;
-                        _toRef = firstOfSeveral ? _from : _from.NextSibling;
+                        _toRef = firstOfSeveral
+                            ? XmlLayout.LeadingWhitespace(_from) ?? (XmlNode)_from
+                            : _from.NextSibling;
                     }
                     break;
                 }
@@ -532,9 +613,26 @@ namespace Fux
                     _to = PrevInBand(node) as XmlElement
                         ?? throw new NudgeBlocked(
                             $"no preceding sibling element to move this {BandName(node)} into");
-                    _toRef = null; // append as its last child (upstream's InsertPosition.Child)
+                    // Append as its last child (upstream's InsertPosition.Child), but ahead of
+                    // the indentation that sits before the target's end tag.
+                    _toRef = XmlLayout.TrailingWhitespace(_to);
                     break;
                 }
+            }
+
+            if (!(node is XmlAttribute))
+            {
+                _ws = XmlLayout.LeadingWhitespace(node);
+                _fromIndent = _ws == null ? null : _ws.Value;
+                _toIndent = _fromIndent;
+
+                if (_to != _from && _ws != null)
+                    _toIndent = XmlLayout.Reindent(_fromIndent, XmlLayout.ChildIndent(_to, indentChars));
+
+                // Demoting into a childless element has to open it up and give it a closing indent.
+                _toWasEmpty = _to.IsEmpty;
+                if (XmlLayout.IsChildless(_to) && XmlLayout.ShouldIndent(_to))
+                    _toClose = _to.OwnerDocument.CreateWhitespace(XmlLayout.OwnIndent(_to));
             }
         }
 
@@ -543,25 +641,39 @@ namespace Fux
         public override bool IsNoop => false; // the constructor refuses the no-op cases
         public IEnumerable<XmlNode> Containers { get { yield return _from; yield return _to; } }
 
-        public override void Do() => Move(_from, _to, _toRef);
+        public override void Do() => Move(_from, _to, _toRef, _toIndent, opening: true);
         public override void Redo() => Do();
-        public override void Undo() => Move(_to, _from, _fromRef);
+        public override void Undo() => Move(_to, _from, _fromRef, _fromIndent, opening: false);
 
-        // Detach from `from`, reattach into `to` directly before `before` (null appends).
-        private void Move(XmlElement from, XmlElement to, XmlNode before)
+        // Detach from `from`, reattach into `to` directly before `before` (null appends),
+        // carrying the node's indentation along and setting it to `indent` for the new depth.
+        private void Move(XmlElement from, XmlElement to, XmlNode before, string indent, bool opening)
         {
             if (_node is XmlAttribute a)
             {
                 from.RemoveAttributeNode(a);
                 if (before is XmlAttribute ba) to.Attributes.InsertBefore(a, ba);
                 else to.SetAttributeNode(a);
+                return;
             }
-            else
+
+            from.RemoveChild(_node);
+            if (_ws != null) from.RemoveChild(_ws);
+            if (!opening && _toClose != null) to.RemoveChild(_toClose);
+
+            if (before != null) to.InsertBefore(_node, before);
+            else to.AppendChild(_node);
+
+            // The closing indent is anchored on the node while it is still the last child.
+            if (opening && _toClose != null) to.InsertAfter(_toClose, _node);
+            if (_ws != null)
             {
-                from.RemoveChild(_node);
-                if (before != null) to.InsertBefore(_node, before);
-                else to.AppendChild(_node);
+                _ws.Value = indent;
+                to.InsertBefore(_ws, _node);
             }
+
+            // Emptying an element leaves it spelled <a></a>; restore <a/> when undoing a demote.
+            if (!opening && _toWasEmpty && _to.ChildNodes.Count == 0) _to.IsEmpty = true;
         }
 
         // The two display bands the tree presents under an element, in order.

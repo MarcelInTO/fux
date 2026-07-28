@@ -388,6 +388,22 @@ namespace XmlNotepad
             try
             {
                 StopFileWatch();
+                WriteDocumentTo(filename);
+            }
+            finally
+            {
+                StartFileWatch();
+            }
+        }
+
+        /// <summary>
+        /// Serialize the document to <paramref name="filename"/>. Extracted from SaveCopy as a
+        /// seam (fux overrides it to write byte-preserving output); the file-watch suspension
+        /// stays in SaveCopy so every implementation inherits it.
+        /// </summary>
+        protected virtual void WriteDocumentTo(string filename)
+        {
+            {
                 XmlWriterSettings s = new XmlWriterSettings();
 
                 var encoding = GetEncoding();
@@ -441,14 +457,10 @@ namespace XmlNotepad
                 }
                 else
                 {
-                    // doing the write this way ensures that an XML exception doesn't result in 
+                    // doing the write this way ensures that an XML exception doesn't result in
                     // wiping the previous state of the file on disk.
                     File.WriteAllBytes(filename, ms.ToArray());
-                }            
-            }
-            finally
-            {
-                StartFileWatch();
+                }
             }
         }
 

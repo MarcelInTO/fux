@@ -19,6 +19,12 @@ namespace Fux
 
         public static int Run(string file)
         {
+            // The document exactly as it arrived, captured before anything can save over it.
+            // Section 13 needs this: several earlier sections ^S-save the scratch copy, so by
+            // the time it runs, reading `file` back would compare fux's output against fux's
+            // own output and pass no matter how badly the writer mangles a document.
+            byte[] sourceBytes = file == null ? null : System.IO.File.ReadAllBytes(file);
+
             var ui = Program.BuildUi(file);
             var app = ui.App;
             app.Driver.SetScreenSize(100, 30);
@@ -37,6 +43,25 @@ namespace Fux
             Check(screen.Contains("Value"), "value pane title renders");
             Check(screen.Contains("Validation:") || screen.Contains("(no file loaded)"), "validation summary renders");
             Check(screen.Contains("┌") && screen.Contains("│") && screen.Contains("┘"), "pane borders render");
+
+            // --- 1b. A save the user did not ask to reformat must not reformat anything. This
+            // has to happen HERE, before any other section saves over the scratch copy: compared
+            // against a file fux has already written, the check would pass no matter how badly
+            // the writer mangles a document. SaveCopy writes through the same seam as ^S without
+            // retargeting the model or clearing dirty, so it costs the rest of the run nothing.
+            // Everything the old writer got wrong — a BOM appearing, LF becoming CRLF, the
+            // declaration regenerated, indentation rebuilt, <b/> growing a space — is invisible
+            // to a re-parse and loud in a diff, so bytes are the oracle.
+            if (file != null && sourceBytes != null)
+            {
+                var ext1 = System.IO.Path.GetExtension(file).ToLowerInvariant();
+                var probe1 = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(file), "fux_drill_pristine.xml");
+                Program.Model.SaveCopy(probe1);
+                if (ext1 != ".htm" && ext1 != ".html") // an HTML import deliberately saves as XML
+                    Check(SameBytes(sourceBytes, System.IO.File.ReadAllBytes(probe1)),
+                        "an unedited save reproduces the source file byte for byte");
+                Check(!Program.Model.Dirty, "SaveCopy leaves the model untouched");
+            }
 
             // --- 2. TrueColor + zero-leak: every cell is painted, and painted with a theme
             // background — nothing shows the terminal's own colors through. Node-kind and
@@ -230,7 +255,7 @@ namespace Fux
                 int kids = root9.ChildNodes.Count;
                 Check(Program.TryInsert(ui, root9, InsertKind.Element, InsertPos.Child, "fuxnew") == null,
                     "element child insert accepted");
-                var fresh = root9.LastChild as XmlElement;
+                var fresh = LastShown(root9) as XmlElement;
                 // compare against the LIVE default namespace: an earlier drill section may
                 // have edited the xmlns attribute value (baked element URIs don't follow)
                 Check(fresh != null && fresh.LocalName == "fuxnew" && fresh.NamespaceURI == root9.GetNamespaceOfPrefix(""),
@@ -241,7 +266,7 @@ namespace Fux
                 app.Keyboard.RaiseKeyDownEvent(Key.Z.WithCtrl);
                 Check(root9.ChildNodes.Count == kids && fresh.ParentNode == null, "undo removes the inserted element");
                 app.Keyboard.RaiseKeyDownEvent(Key.Y.WithCtrl);
-                Check(ReferenceEquals(root9.LastChild, fresh), "redo restores it at the same spot");
+                Check(ReferenceEquals(LastShown(root9), fresh), "redo restores it at the same spot");
                 app.Keyboard.RaiseKeyDownEvent(Key.Z.WithCtrl);
 
                 // sibling position: insert before the first element child
@@ -253,7 +278,7 @@ namespace Fux
                     Check(Program.TryInsert(ui, firstChild, InsertKind.Element, InsertPos.Before, "fuxbefore") == null,
                         "sibling insert accepted");
                     var sib = ui.Tree.SelectedObject as XmlElement;
-                    Check(sib != null && ReferenceEquals(sib.NextSibling, firstChild), "Before lands directly before the anchor");
+                    Check(sib != null && ReferenceEquals(NextShown(sib), firstChild), "Before lands directly before the anchor");
                     app.Keyboard.RaiseKeyDownEvent(Key.Z.WithCtrl);
                 }
 
@@ -265,12 +290,12 @@ namespace Fux
 
                 Check(Program.TryInsert(ui, root9, InsertKind.Comment, InsertPos.Child, null) == null,
                     "comment insert accepted (no name needed)");
-                Check(root9.LastChild is XmlComment, "comment lands as last child");
+                Check(LastShown(root9) is XmlComment, "comment lands as last child");
                 app.Keyboard.RaiseKeyDownEvent(Key.Z.WithCtrl);
 
                 Check(Program.TryInsert(ui, root9, InsertKind.Pi, InsertPos.Child, "fuxpi") == null,
                     "processing instruction insert accepted");
-                Check(root9.LastChild is XmlProcessingInstruction lastPi && lastPi.Target == "fuxpi",
+                Check(LastShown(root9) is XmlProcessingInstruction lastPi && lastPi.Target == "fuxpi",
                     "PI lands as last child with its target");
                 app.Keyboard.RaiseKeyDownEvent(Key.Z.WithCtrl);
 
@@ -292,14 +317,14 @@ namespace Fux
                 if (firstChild != null)
                 {
                     var parent9 = firstChild.ParentNode;
-                    var successor = firstChild.NextSibling;
+                    var successor = NextShown(firstChild);
                     ui.Tree.SelectedObject = firstChild;
                     ui.Tree.SetFocus();
                     app.Keyboard.RaiseKeyDownEvent(Key.DeleteChar);
                     Check(firstChild.ParentNode == null, "Del removes the selected element");
                     Check(ReferenceEquals(ui.Tree.SelectedObject, parent9), "selection falls back to the parent");
                     app.Keyboard.RaiseKeyDownEvent(Key.Z.WithCtrl);
-                    Check(ReferenceEquals(firstChild.ParentNode, parent9) && ReferenceEquals(firstChild.NextSibling, successor),
+                    Check(ReferenceEquals(firstChild.ParentNode, parent9) && ReferenceEquals(NextShown(firstChild), successor),
                         "undo restores the element in its exact position");
                     Check(ReferenceEquals(ui.Tree.SelectedObject, firstChild), "undo reselects the restored element");
                 }
@@ -338,16 +363,16 @@ namespace Fux
 
                 // Up/Down and the full history walk over one nudge.
                 Check(Program.TryNudge(ui, fb, NudgeDir.Up) == null, "nudge up accepted");
-                Check(ReferenceEquals(fb.NextSibling, fa), "nudge up swaps with the previous sibling");
+                Check(ReferenceEquals(NextShown(fb), fa), "nudge up swaps with the previous sibling");
                 Check(ReferenceEquals(ui.Tree.SelectedObject, fb), "the moved node stays selected");
                 app.Keyboard.RaiseKeyDownEvent(Key.Z.WithCtrl);
-                Check(ReferenceEquals(fa.NextSibling, fb) && ReferenceEquals(rootD.LastChild, fb),
+                Check(ReferenceEquals(NextShown(fa), fb) && ReferenceEquals(LastShown(rootD), fb),
                     "undo restores the original sibling order exactly");
                 app.Keyboard.RaiseKeyDownEvent(Key.Y.WithCtrl);
-                Check(ReferenceEquals(fb.NextSibling, fa), "redo re-applies the move");
+                Check(ReferenceEquals(NextShown(fb), fa), "redo re-applies the move");
                 app.Keyboard.RaiseKeyDownEvent(Key.Z.WithCtrl);
                 Check(Program.TryNudge(ui, fa, NudgeDir.Down) == null, "nudge down accepted");
-                Check(ReferenceEquals(fb.NextSibling, fa) && ReferenceEquals(rootD.LastChild, fa),
+                Check(ReferenceEquals(NextShown(fb), fa) && ReferenceEquals(LastShown(rootD), fa),
                     "nudge down moves it past its successor");
                 app.Keyboard.RaiseKeyDownEvent(Key.Z.WithCtrl);
 
@@ -368,9 +393,9 @@ namespace Fux
                 ui.Tree.SelectedObject = fb;
                 ui.Tree.SetFocus();
                 app.Keyboard.RaiseKeyDownEvent(Key.CursorUp.WithCtrl.WithShift);
-                Check(ReferenceEquals(fb.NextSibling, fa), "^Shift+Up nudges the selection up");
+                Check(ReferenceEquals(NextShown(fb), fa), "^Shift+Up nudges the selection up");
                 app.Keyboard.RaiseKeyDownEvent(Key.CursorDown.WithCtrl);
-                Check(ReferenceEquals(fa.NextSibling, fb), "^Down (alias) nudges it back down");
+                Check(ReferenceEquals(NextShown(fa), fb), "^Down (alias) nudges it back down");
 
                 // Demote: fb moves into fa, so two containers change at once. Both a row count
                 // that survives the move and the node being on screen afterwards are load-
@@ -413,7 +438,7 @@ namespace Fux
                 // child, so upstream's rule lands it after fa rather than before.
                 int rowsP = TreeRows(ui);
                 Check(Program.TryNudge(ui, fb, NudgeDir.Left) == null, "promote accepted");
-                Check(ReferenceEquals(fb.ParentNode, rootD) && ReferenceEquals(fa.NextSibling, fb),
+                Check(ReferenceEquals(fb.ParentNode, rootD) && ReferenceEquals(NextShown(fa), fb),
                     "promote lifts it back out, after its old parent");
                 app.LayoutAndDraw(true);
                 Check(TreeRows(ui) == rowsP, $"promote adds no row (was {rowsP}, now {TreeRows(ui)})");
@@ -593,7 +618,115 @@ namespace Fux
                 Check(!Program.Model.Dirty, "and comes back clean");
             }
 
-            // --- 13. F9 focuses the menu bar; ^Q requests stop.
+            // --- 13. Byte-preserving saves. The oracle is the file itself: a save the user did
+            // not ask to reformat must not reformat anything. Comparing bytes rather than
+            // re-parsing is the point — every defect this guards against (a BOM appearing, LF
+            // becoming CRLF, the declaration being regenerated, indentation being rebuilt,
+            // <b/> growing a space) produces a document that is semantically identical and
+            // wrong in a diff. Fixture-agnostic: everything is measured against this run's own
+            // first save, so no assertion hard-codes a document's shape.
+            {
+                var scratch = System.IO.Path.GetDirectoryName(file);
+                var probe = System.IO.Path.Combine(scratch, "fux_drill_bytes.xml");
+
+                // SaveCopy rather than TrySaveAs: these checks compare the document against
+                // itself either side of an edit-and-undo, and retargeting the model each time
+                // would add churn they would then have to tolerate.
+                Program.Model.SaveCopy(probe);
+                byte[] pristine = System.IO.File.ReadAllBytes(probe);
+
+                // An insert has to land on a line of its own, indented like the siblings it
+                // joins — the visible half of keeping the document's whitespace in the DOM.
+                var rootB = Program.Model.Document?.DocumentElement;
+                if (rootB != null)
+                {
+                    // What "correct" looks like depends on how the container is already written:
+                    // a block-formatted one gives the new node its own indented line, while a
+                    // container written inline must be left inline. Adding a node is not a
+                    // licence to reformat the document around it, in either direction.
+                    bool blockLaidOut = XmlLayout.ShouldIndent(rootB);
+                    // A sibling to measure against. "Correctly indented" means "indented like
+                    // the neighbours", not "indented at all" — an HTML import's root children
+                    // sit at column zero, and matching that is right, not a bug.
+                    string siblingName = null;
+                    foreach (XmlNode c in rootB.ChildNodes)
+                        if (c is XmlElement se) { siblingName = se.Name; break; }
+
+                    Check(Program.TryInsert(ui, rootB, InsertKind.Element, InsertPos.Child, "fuxbyte") == null,
+                        "byte drill: element inserted");
+                    Program.Model.SaveCopy(probe);
+                    string inserted = System.IO.File.ReadAllText(probe);
+                    string line = LineWith(inserted, "<fuxbyte");
+                    if (blockLaidOut)
+                    {
+                        Check(line.Trim() == "<fuxbyte/>" || line.Trim() == "<fuxbyte />",
+                            $"the inserted element gets a line to itself (line was \"{line}\")");
+                        if (siblingName != null)
+                        {
+                            string sibLine = LineWithTag(inserted, siblingName);
+                            string want = sibLine.Substring(0, sibLine.Length - sibLine.TrimStart().Length);
+                            string got = line.Substring(0, line.Length - line.TrimStart().Length);
+                            Check(got == want,
+                                $"the inserted element is indented like its siblings (\"{got}\" vs \"{want}\")");
+                        }
+                    }
+                    else
+                    {
+                        Check(line.Contains("<fuxbyte/>") || line.Contains("<fuxbyte />"),
+                            "the inserted element is written");
+                        Check(line.Trim() != "<fuxbyte/>" && line.Trim() != "<fuxbyte />",
+                            $"an inline container is not reformatted around the insert (line was \"{line}\")");
+                    }
+
+                    // The strongest check here: an edit and its undo must cancel out in the
+                    // bytes, not merely in the tree. It catches whitespace added on insert but
+                    // not removed on undo, and an element that went in as <a/> coming back
+                    // out as <a></a>.
+                    app.Keyboard.RaiseKeyDownEvent(Key.Z.WithCtrl);
+                    Program.Model.SaveCopy(probe);
+                    Check(SameBytes(pristine, System.IO.File.ReadAllBytes(probe)),
+                        "insert then undo restores the file byte for byte");
+
+                    // A nudge is reversible by its opposite by design (it stays inside the
+                    // node's display band), so the bytes have to come back too.
+                    Check(Program.TryInsert(ui, rootB, InsertKind.Element, InsertPos.Child, "fuxb1") == null &&
+                          Program.TryInsert(ui, rootB, InsertKind.Element, InsertPos.Child, "fuxb2") == null,
+                        "byte drill: two elements for the nudge");
+                    var n2 = ui.Tree.SelectedObject as XmlElement;
+                    Program.Model.SaveCopy(probe);
+                    byte[] beforeNudge = System.IO.File.ReadAllBytes(probe);
+                    Check(Program.TryNudge(ui, n2, NudgeDir.Up) == null, "byte drill: nudge up");
+
+                    // Assert on the state after ONE nudge, not just after the round trip: a
+                    // nudge that tears a node out from between two indents and drops it against
+                    // its new neighbour is still perfectly reversible, so the round-trip check
+                    // alone passes while the document is visibly mangled in between.
+                    Program.Model.SaveCopy(probe);
+                    if (blockLaidOut)
+                    {
+                        string nudgedLine = LineWith(System.IO.File.ReadAllText(probe), "<fuxb2");
+                        Check(nudgedLine.Trim() == "<fuxb2/>" || nudgedLine.Trim() == "<fuxb2 />",
+                            $"a nudged element keeps a line to itself (line was \"{nudgedLine}\")");
+                    }
+
+                    Check(Program.TryNudge(ui, n2, NudgeDir.Down) == null, "byte drill: nudge back down");
+                    Program.Model.SaveCopy(probe);
+                    Check(SameBytes(beforeNudge, System.IO.File.ReadAllBytes(probe)),
+                        "a nudge and its opposite cancel out byte for byte");
+
+                    // Same contract for delete.
+                    Check(Program.TryDelete(ui, n2) == null, "byte drill: element deleted");
+                    app.Keyboard.RaiseKeyDownEvent(Key.Z.WithCtrl);
+                    Program.Model.SaveCopy(probe);
+                    Check(SameBytes(beforeNudge, System.IO.File.ReadAllBytes(probe)),
+                        "delete then undo restores the file byte for byte");
+                }
+
+                // Back to the drill's own document, clean, for the rest of the run.
+                Check(Program.TryOpen(ui, file) == null, "byte drill: the original document reopens");
+            }
+
+            // --- 14. F9 focuses the menu bar; ^Q requests stop.
             bool f9Handled = app.Keyboard.RaiseKeyDownEvent(Key.F9);
             app.RaiseIteration(); // popover show is processed by the main loop
             app.LayoutAndDraw(true);
@@ -686,6 +819,65 @@ namespace Fux
         // own: EnsureVisible scrolls to the *first* line-map match, which can leave the stale
         // twin below the fold.
         private static int TreeRows(Program.Ui ui) => ui.Tree.GetContentSize().Height;
+
+        // Sibling adjacency *as the tree shows it*. Documents load with their whitespace
+        // preserved, so a node's raw NextSibling is normally the next line's indentation, not
+        // the next row. Reordering is defined on the display band, so that is what to assert on.
+        private static XmlNode NextShown(XmlNode n)
+        {
+            for (var s = n?.NextSibling; s != null; s = s.NextSibling)
+                if (Program.IsShown(s)) return s;
+            return null;
+        }
+
+        private static XmlNode LastShown(XmlNode parent)
+        {
+            XmlNode last = null;
+            foreach (XmlNode c in parent.ChildNodes)
+                if (Program.IsShown(c)) last = c;
+            return last;
+        }
+
+        private static bool SameBytes(byte[] a, byte[] b)
+        {
+            if (a.Length != b.Length) return false;
+            for (int i = 0; i < a.Length; i++) if (a[i] != b[i]) return false;
+            return true;
+        }
+
+        // The whole source line that `needle` appears on, or "" — used to check that an inserted
+        // node got a line to itself rather than being jammed onto a sibling's.
+        private static string LineWith(string text, string needle)
+        {
+            int i = text.IndexOf(needle, StringComparison.Ordinal);
+            if (i < 0) return "";
+            int start = text.LastIndexOf('\n', i) + 1;
+            int end = text.IndexOf('\n', i);
+            return end < 0 ? text.Substring(start) : text.Substring(start, end - start).TrimEnd('\r');
+        }
+
+        // The line holding the start tag of `name`, matched at a tag boundary. A plain substring
+        // search is not enough: "<Employee" also matches "<Employees", which in emp.xml is the
+        // root element sitting at column zero — enough to make an indentation check compare
+        // against the wrong line.
+        private static string LineWithTag(string text, string name)
+        {
+            string open = "<" + name;
+            for (int i = text.IndexOf(open, StringComparison.Ordinal); i >= 0;
+                     i = text.IndexOf(open, i + 1, StringComparison.Ordinal))
+            {
+                int after = i + open.Length;
+                if (after >= text.Length) break;
+                char c = text[after];
+                if (c == '>' || c == '/' || c == ' ' || c == '\t' || c == '\r' || c == '\n')
+                {
+                    int start = text.LastIndexOf('\n', i) + 1;
+                    int end = text.IndexOf('\n', i);
+                    return end < 0 ? text.Substring(start) : text.Substring(start, end - start).TrimEnd('\r');
+                }
+            }
+            return "";
+        }
 
         // How many rows on screen draw a given label. Catches the opposite failure: a node that
         // landed inside a collapsed container is branched correctly but drawn nowhere, so it
