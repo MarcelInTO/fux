@@ -4,7 +4,7 @@
     fux: cross-platform build shims for reusing the XmlNotepad engine off-Windows.
 
     This file is NEW (upstream has no Directory.Build.targets), so it never conflicts
-    on `git merge master`. MSBuild imports Directory.Build.targets *after* each project's
+    on `git merge upstream-master`. MSBuild imports Directory.Build.targets *after* each project's
     own content, so a target defined here with the same name overrides the project's inline
     one. We use that to replace Windows-only build steps with portable equivalents instead
     of editing the upstream .csproj files.

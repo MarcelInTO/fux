@@ -2,15 +2,17 @@ name: fux CI
 
 # Cross-platform build + headless smoke for the fux TUI and the reused XmlNotepad engine,
 # and publish of a self-contained single-file binary per OS as a downloadable artifact.
-# Scoped to the fux product branches (upstream's own workflows are master-only). The TUI
-# itself is exercised by the --drill self-test under a PTY on Linux/macOS; final visual
-# checks per platform remain human.
+# The TUI itself is exercised by the --drill self-test under a PTY on Linux/macOS; final
+# visual checks per platform remain human.
+#
+# Scoped to `main` on purpose, not to every branch: `upstream-master` is a pristine mirror
+# of microsoft/XmlNotepad, which has no fux project to build.
 
 on:
   push:
-    branches: [ fux, fux-v2 ]
+    branches: [ main ]
   pull_request:
-    branches: [ fux, fux-v2 ]
+    branches: [ main ]
   workflow_dispatch:
 
 permissions:
