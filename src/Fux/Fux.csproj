@@ -17,6 +17,25 @@
     <InvariantGlobalization>true</InvariantGlobalization>
   </PropertyGroup>
 
+  <!--
+    fux's own assembly metadata. Deliberately NOT ../Version/Version.props: that file is
+    upstream's and stamps Company/Product/Copyright as Microsoft Corporation / XmlNotepad,
+    which is correct for the assemblies that import it (Model, XmlNotepad, Application) and
+    wrong for this one. Without these properties the SDK defaults Company and Product to the
+    assembly name and emits no copyright at all, so a shipped `fux` carried no attribution.
+    Both holders are named here because the binary bundles Microsoft's engine: see LICENSE
+    and THIRD-PARTY-NOTICES.md.
+  -->
+  <PropertyGroup>
+    <Product>fux</Product>
+    <Authors>Marcel Samek</Authors>
+    <Company>Marcel Samek</Company>
+    <Copyright>Copyright © 2026 Marcel Samek. Portions Copyright © Microsoft Corporation.</Copyright>
+    <Description>A cross-platform terminal XML editor, derived from Microsoft XML Notepad.</Description>
+    <RepositoryUrl>https://github.com/MarcelInTO/fux</RepositoryUrl>
+    <Version>0.1.0</Version>
+  </PropertyGroup>
+
   <ItemGroup>
     <PackageReference Include="Microsoft.Xml.SgmlReader" Version="1.8.30" />
     <!--

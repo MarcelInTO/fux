@@ -279,8 +279,7 @@ namespace Fux
                 }),
                 new MenuBarItem("_Help", new View[]
                 {
-                    new MenuItem("_About", "", () =>
-                        ModalQuery(ui, "About fux", "A terminal XML editor over the XmlNotepad engine.", "OK")),
+                    new MenuItem("_About", "", () => ModalQuery(ui, "About fux", AboutText(), "OK")),
                 }),
             })
             {
@@ -550,6 +549,28 @@ namespace Fux
 
         // MessageBox/dialog wrappers: ModalDepth keeps the app-wide key handler inert while
         // a modal runs (otherwise Del in a dialog's text field would delete the tree node).
+        // The About box is the only attribution a user who never opens the repo will see, so it
+        // names both copyright holders and disclaims endorsement — see LICENSE and
+        // THIRD-PARTY-NOTICES.md. A method rather than an inline string so --drill can assert on
+        // it: this text is a license-compliance artifact, and it should break the build loudly
+        // rather than quietly lose the Microsoft notice. Lines are hard-wrapped narrow enough to
+        // fit an 80-column terminal, since MessageBox sizes itself to the longest one. The
+        // version comes from the assembly (set in Fux.csproj) so it cannot drift from the build.
+        internal static string AboutText()
+        {
+            return "fux " + typeof(Program).Assembly.GetName().Version.ToString(3) + "\n"
+                + "A cross-platform terminal XML editor.\n"
+                + "\n"
+                + "Copyright (c) 2026 Marcel Samek. MIT licensed.\n"
+                + "\n"
+                + "Built on the document engine from Microsoft XML\n"
+                + "Notepad, Copyright (c) Microsoft Corporation,\n"
+                + "MIT licensed. Not endorsed by or affiliated\n"
+                + "with Microsoft.\n"
+                + "\n"
+                + "See LICENSE and THIRD-PARTY-NOTICES.md.";
+        }
+
         private static int? ModalQuery(Ui ui, string title, string message, params string[] buttons)
         {
             if (ui == null) return null;

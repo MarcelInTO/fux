@@ -756,7 +756,25 @@ namespace Fux
                 Check(Program.TryOpen(ui, file) == null, "byte drill: the original document reopens");
             }
 
-            // --- 14. F9 focuses the menu bar; ^Q requests stop.
+            // --- 14. The About box carries the attribution the MIT notice requires.
+            // Not a cosmetic check: fux bundles Microsoft's engine, and this is the only notice a
+            // user who never opens the repo will read. Asserting on the specific strings, so
+            // dropping the upstream copyright line goes red here rather than shipping.
+            {
+                var about = Program.AboutText();
+                Check(about.Contains("Copyright (c) 2026 Marcel Samek"), "About names fux's copyright");
+                Check(about.Contains("Copyright (c) Microsoft Corporation"), "About names the upstream copyright");
+                Check(about.Contains("MIT"), "About names the license");
+                Check(about.Contains("Not endorsed by"), "About disclaims endorsement");
+                var version = typeof(Program).Assembly.GetName().Version.ToString(3);
+                Check(about.Contains("fux " + version), $"About carries the build version ({version})");
+                // MessageBox sizes itself to the longest line; keep it inside 80 columns.
+                int widest = 0;
+                foreach (var line in about.Split('\n')) if (line.Length > widest) widest = line.Length;
+                Check(widest <= 60, $"About fits a narrow terminal (widest line {widest} <= 60)");
+            }
+
+            // --- 15. F9 focuses the menu bar; ^Q requests stop.
             bool f9Handled = app.Keyboard.RaiseKeyDownEvent(Key.F9);
             app.RaiseIteration(); // popover show is processed by the main loop
             app.LayoutAndDraw(true);

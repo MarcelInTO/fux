@@ -1,33 +1,106 @@
-XML Notepad is a Windows program that provides a simple intuitive User Interface for browsing and editing XML documents. There are four ways to install it:
-1. [ClickOnce® installer](https://lovettsoftwarestorage.blob.core.windows.net/downloads/XmlNotepad/XmlNotepad.application) - this is the most convenient, install it directly from the web browser.
-2. [Standalone downloadable installer](https://lovettsoftwarestorage.blob.core.windows.net/downloads/XmlNotepad/XmlNotepadSetup.zip) if you need something that works offline.
-Just download the zip file, copy it to the machine you want to install it on, unzip the file on that machine and run `XmlNotepadSetup.msi`.
-3. [Windows MSIX installer](https://github.com/microsoft/XmlNotepad/releases) is included in each github
-release under the expandable "Assets" heading in case you need a trusted Windows installer.
-4. You can also use [WinGet](https://winget.run/pkg/Microsoft/XMLNotepad) as follows: `winget install XmlNotepad` - but this is a bit behind right now due to problems updating the winget repo.
+# fux
 
-[![image](docs/assets/images/help.png)](https://youtu.be/bmchxiu_oV0)
+A cross-platform terminal XML editor. Browse, edit and validate XML from a TUI —
+schema-aware, undoable, and byte-preserving on save — as a single self-contained
+binary with no runtime to install.
 
-[XML Notepad](http://microsoft.github.io/XmlNotepad) provides the following useful features:
-- XML Schema aware Intellisense
-- Find dialog that supports XPath
-- Support for XInclude
-- Supports XSLT transforms with inline viewer of XSLT output
-- Automatic conversion of .csv, .json and .html files
-- Handy stats about your XML documents
-- XML diff to compare 2 similar XML documents
-- Vibrant community with many [updates and bug fixes](http://microsoft.github.io/XmlNotepad/help/updates/).
+fux reuses the battle-tested document engine from
+[Microsoft XML Notepad](https://github.com/microsoft/XmlNotepad) (XSD validation,
+schema cache, DOM loader, undo manager) behind a
+[Terminal.Gui](https://github.com/gui-cs/Terminal.Gui/) v2 front end. See
+[Origins](#origins) for the full story.
 
-See [XML Notepad Design](http://microsoft.github.io/XmlNotepad/dev/design/) for information about how this application is built.
+## Build
 
-This project has adopted the [Microsoft Open Source Code of Conduct](https://opensource.microsoft.com/codeofconduct/).
+Requires the .NET 10 SDK. Everything else comes from NuGet.
 
-For more information see the [Code of Conduct FAQ](https://opensource.microsoft.com/codeofconduct/faq/) or contact [opencode@microsoft.com](mailto:opencode@microsoft.com) with any additional questions or comments.
+```sh
+make                 # self-contained single-file binary for this host -> bin/fux
+make install         # install to $(PREFIX)/bin (default /usr/local; may need sudo)
+```
 
-## Change History
+Targets macOS (arm64/x64) and Linux (arm64/x64); the host RID is auto-detected, or
+pass `RID=...`. `make help` lists everything.
 
-See [Change History](http://microsoft.github.io/XmlNotepad/help/updates/) for a list of new features and bug fixes.
+## Use
 
-## Help
+```sh
+fux document.xml           # open the editor
+fux --dump document.xml    # headless structure dump
+fux --validate doc.xml     # headless XSD validation
+```
 
-See [Help Pages](http://microsoft.github.io/XmlNotepad).
+`.htm`, `.html`, `.json` and `.csv` files are converted to XML on open, following
+XML Notepad's conversion conventions. An import never overwrites its own source:
+saving writes XML, so `fux data.csv` will not silently turn `data.csv` into an XML
+file.
+
+## Keys
+
+| Key | Action |
+| --- | --- |
+| `F9` | menu |
+| `F6` | cycle panes |
+| `F2` / `Enter` | edit value in place (`F2` commit, `Esc` cancel) |
+| `^R` | rename element / attribute / PI |
+| `^N` | insert element, attribute, comment or PI |
+| `Del` | delete node |
+| `^Shift+←↑↓→` | nudge: reorder siblings, promote / demote |
+| `^Z` / `^Y` | undo / redo |
+| `^F`, `F3`, `Shift+F3` | find (text, regex or XPath), next, previous |
+| `^O` | open |
+| `^S` | save |
+| `F5` | toggle light / dark theme |
+| `^Q` | quit |
+
+Save As lives in the File menu rather than on a chord: `Ctrl+Shift+S` is
+indistinguishable from `Ctrl+S` in legacy terminal encoding, and an advertised
+shortcut that quietly saves the wrong file is worse than no shortcut.
+
+## What it does
+
+- **XSD validation** as you type, with an error pane and jump-to-node.
+- **Schema-aware editing** over the reused XML Notepad engine.
+- **Byte-preserving saves** — untouched parts of a document come back out exactly as
+  they went in, rather than being re-indented wholesale.
+- **Find** by text, regular expression or XPath.
+- **Import** from HTML, JSON and CSV.
+- **Full undo/redo** across every edit, including position-exact delete undo.
+- **Solarized light/dark** theming, switchable at runtime.
+
+Not included, by design: the HTML and XSLT preview panes, which need a browser
+control that has no place in a terminal.
+
+## Development
+
+```sh
+make run FILE=x      # build + run on a file
+make drill FILE=x    # headless interactive self-test: key injection + render assertions
+make smoke           # headless engine build + XSD-validation check
+```
+
+`--drill` is the main safety net: it drives the real TUI under a PTY, injecting keys
+and asserting on rendered output. It is fixture-agnostic and runs in CI on Linux and
+macOS. Every behavioural fix should come with a drill check that goes red when the
+fix is removed.
+
+## Origins
+
+fux is a derivative work of **Microsoft XML Notepad**, Copyright (c) Microsoft
+Corporation, used under the MIT License. XML Notepad is a Windows GUI application;
+fux keeps its document engine — the part that knows XML, XSD and schema
+IntelliSense — and replaces the Windows Forms UI with a terminal one, so the same
+capability works over SSH and on machines that will never run Windows.
+
+Substantial portions of this repository are unmodified upstream source, and those
+files retain their original copyright headers. Full attribution for the incorporated
+code and for every third-party dependency is in
+[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
+
+Microsoft does not endorse, sponsor or support fux. Please report fux issues here,
+not to Microsoft or to the XML Notepad project.
+
+## License
+
+MIT — see [LICENSE](LICENSE). fux's own code is Copyright (c) 2026 Marcel Samek;
+incorporated portions remain Copyright (c) Microsoft Corporation.
