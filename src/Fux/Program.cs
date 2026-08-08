@@ -57,8 +57,8 @@ namespace Fux
             // Keep the document's own whitespace in the DOM. It is what makes a save reproduce
             // the file that was opened: without it the layout never reaches the tree at all and
             // every save re-indents the whole document from scratch. The tree is unaffected —
-            // GetChildren already filters whitespace out (see IsShown) and GetValue still reads
-            // a container as having no scalar value.
+            // GetChildren already filters the layout whitespace out (see IsShown) and GetValue
+            // still reads a container as having no scalar value.
             settings["PreserveWhitespace"] = true;
             _model = new FuxCache(site, new SchemaCache(site), new DelayedActions(a => a()));
 
@@ -1209,6 +1209,12 @@ namespace Fux
                     case XmlNodeType.Comment:
                     case XmlNodeType.ProcessingInstruction:
                         return n;
+                    case XmlNodeType.Text:
+                    case XmlNodeType.CDATA:
+                        // Only in mixed content; elsewhere the text is folded into its element's
+                        // value and the element is the row to land on.
+                        if (IsShown(n)) return n;
+                        break;
                 }
                 // Attributes report ParentNode == null in System.Xml, so climb via OwnerElement.
                 n = n is XmlAttribute a ? a.OwnerElement : n.ParentNode;
@@ -1227,17 +1233,66 @@ namespace Fux
                     yield return a;
 
             if (n.NodeType == XmlNodeType.Element || n.NodeType == XmlNodeType.Document)
+            {
+                // Whether the text children get rows depends on the parent, not on each child,
+                // so it is settled once here rather than re-derived per child. An element with
+                // thousands of interleaved text and element children is drawn in one pass over
+                // them instead of one pass per text node.
+                bool container = IsContainer(n);
                 foreach (XmlNode c in n.ChildNodes)
-                    if (IsShown(c))
+                    if (IsShown(c, container))
                         yield return c;
+            }
         }
 
-        // Does the tree give this child a row of its own? Text-ish content is folded into its
-        // element's value instead (see GetValue), so it never appears as a node — which also
-        // means nudging must step over it (NudgeNode.PrevInBand/NextInBand).
-        internal static bool IsShown(XmlNode n)
-            => n.NodeType != XmlNodeType.Text && n.NodeType != XmlNodeType.CDATA &&
-               n.NodeType != XmlNodeType.Whitespace && n.NodeType != XmlNodeType.SignificantWhitespace;
+        // Does the tree give this child a row of its own?
+        //
+        // An element with nothing but text-ish children has that text folded into its own value
+        // (see GetValue), so the text nodes stay invisible — `<name>Fred</name>` is one row, not
+        // two. A *container* has no scalar value to fold into, so its text children get rows of
+        // their own; without that, the prose in mixed content (`<p>Call me <i>Ishmael</i>. Some
+        // years ago…</p>`) would appear nowhere in the tree at all, and so would be invisible to
+        // find as well. Whitespace between elements is layout rather than content and stays
+        // hidden either way — it is the document's indentation, kept in the DOM only so a save
+        // can reproduce the file that was opened. It needs no guard of its own here: a reader
+        // reports a whitespace-only run as Whitespace/SignificantWhitespace, never as Text, so
+        // indentation inside mixed content is caught by the case above rather than by inspecting
+        // the value of every text node the tree draws.
+        internal static bool IsShown(XmlNode n) => IsShown(n, IsContainer(n.ParentNode));
+
+        // The same rule with the parent's container-ness already in hand, for callers walking a
+        // whole child list. Kept as one implementation so the two entry points cannot drift.
+        private static bool IsShown(XmlNode n, bool parentIsContainer)
+        {
+            switch (n.NodeType)
+            {
+                case XmlNodeType.Whitespace:
+                case XmlNodeType.SignificantWhitespace:
+                    return false;
+                case XmlNodeType.Text:
+                case XmlNodeType.CDATA:
+                    return parentIsContainer;
+                default:
+                    return true;
+            }
+        }
+
+        // Has this node children that are more than text — element, comment or PI — making it a
+        // structure to descend into rather than something with a scalar value? This is the one
+        // rule behind both halves of the fold: IsShown gives a container's text children rows,
+        // and GetValue declines to give the container itself a value.
+        internal static bool IsContainer(XmlNode n)
+        {
+            if (n == null || (n.NodeType != XmlNodeType.Element && n.NodeType != XmlNodeType.Document))
+                return false;
+            foreach (XmlNode c in n.ChildNodes)
+                if (!IsTextish(c)) return true;
+            return false;
+        }
+
+        private static bool IsTextish(XmlNode n)
+            => n.NodeType == XmlNodeType.Text || n.NodeType == XmlNodeType.CDATA ||
+               n.NodeType == XmlNodeType.Whitespace || n.NodeType == XmlNodeType.SignificantWhitespace;
 
         internal static string GetLabel(XmlNode n)
         {
@@ -1248,6 +1303,7 @@ namespace Fux
                 case XmlNodeType.Comment: return "<!-- comment -->";
                 case XmlNodeType.ProcessingInstruction: return "<?" + n.Name + "?>";
                 case XmlNodeType.CDATA: return "<![CDATA[]]>";
+                case XmlNodeType.Text: return "#text";
                 default: return n.Name;
             }
         }
@@ -1265,15 +1321,12 @@ namespace Fux
                 case XmlNodeType.ProcessingInstruction: // Value aliases the PI's Data
                     return n.Value;
                 case XmlNodeType.Element:
+                    // A container's text is shown on rows of its own (IsShown), so folding it in
+                    // here as well would print it twice.
+                    if (IsContainer(n)) return "";
                     string text = null;
                     foreach (XmlNode c in n.ChildNodes)
-                    {
-                        if (c.NodeType == XmlNodeType.Text || c.NodeType == XmlNodeType.CDATA ||
-                            c.NodeType == XmlNodeType.Whitespace || c.NodeType == XmlNodeType.SignificantWhitespace)
-                            text = (text ?? "") + c.Value;
-                        else
-                            return ""; // has element children → a container, no scalar value
-                    }
+                        text = (text ?? "") + c.Value;
                     return text ?? "";
                 default:
                     return "";

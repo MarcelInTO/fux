@@ -646,6 +646,101 @@ namespace Fux
                 Check(!Program.Model.Dirty, "and comes back clean");
             }
 
+            // --- 12b. Mixed content. An element whose children are only text folds that text
+            // into its own value and shows no child row; a *container* has no value to fold
+            // into, so its text children get rows of their own. Before that second half existed,
+            // an imported HTML document lost every word that shared a parent with an inline tag
+            // — the text was in the DOM and saved back correctly, but appeared on no row and so
+            // could not be found either, which is exactly how the bug was reported.
+            //
+            // Driven through the real HTML import (SgmlReader), because that is where mixed
+            // content actually arrives from; the fixture is the shape a Gutenberg book uses for
+            // its front matter.
+            {
+                var scratch = System.IO.Path.GetDirectoryName(file);
+                var mixed = System.IO.Path.Combine(scratch, "fux_drill_mixed.html");
+                System.IO.File.WriteAllText(mixed,
+                    "<html><body>\n" +
+                    "<p><strong>Release date</strong>: July 1, 2001<br>\n" +
+                    "Most recently updated: February 10, 2026</p>\n" +
+                    "<p>Call me Ishmael.</p>\n" +
+                    "<div>\n  <span>inner</span>\n</div>\n" +
+                    "</body></html>\n");
+
+                Check(Program.TryOpen(ui, mixed) == null, "mixed-content HTML imported");
+                var body = Program.Model.Document?.DocumentElement?["body"];
+                var ps = body?.GetElementsByTagName("p");
+
+                if (Check(ps != null && ps.Count == 2, "the import produced both paragraphs"))
+                {
+                    // The mixed paragraph: <strong>, text, <br>, text — in source order, and
+                    // asserted as the whole row list rather than "the screen contains it
+                    // somewhere", so a stray extra row (an indentation node leaking through)
+                    // fails just as loudly as a missing one.
+                    var mixedP = (XmlElement)ps[0];
+                    Check(Rows(mixedP) == "<strong>|#text|<br>|#text",
+                        $"mixed content shows its text on rows of its own (was \"{Rows(mixedP)}\")");
+                    // The line break after <br> belongs to the text node that follows it, and is
+                    // asserted rather than trimmed away: a text row's value is the source's
+                    // characters exactly, which is what lets a save reproduce the file.
+                    Check(Values(mixedP) == "Release date|: July 1, 2001||\nMost recently updated: February 10, 2026",
+                        $"each text row carries its own text (was \"{Vis(Values(mixedP))}\")");
+                    Check(Program.GetValue(mixedP) == "",
+                        "the container itself has no scalar value, so nothing is shown twice");
+
+                    // The text-only paragraph keeps the old fold: one row, no children.
+                    var plainP = (XmlElement)ps[1];
+                    Check(Rows(plainP) == "", $"a text-only element still shows no child rows (was \"{Rows(plainP)}\")");
+                    Check(Program.GetValue(plainP) == "Call me Ishmael.",
+                        "a text-only element still folds its text into its own value");
+
+                    // Indentation between elements is layout, not content, and stays hidden.
+                    var div = (XmlElement)body.GetElementsByTagName("div")[0];
+                    Check(Rows(div) == "<span>", $"whitespace between elements gets no row (was \"{Rows(div)}\")");
+
+                    // The rows reach the screen, and in the right place: the text between
+                    // <strong> and <br> is drawn directly under <strong>. Asserting the
+                    // neighbouring row rather than "#text appears somewhere" keeps this honest
+                    // — the paragraph has two text rows, and only one of them belongs here.
+                    var lost = mixedP.LastChild;
+                    ui.Tree.SelectedObject = lost;
+                    app.LayoutAndDraw(true);
+                    Console.Error.WriteLine(); // the repaint leaves the cursor mid-line
+                    int strongRow = RowIndexOf(app, "<strong>");
+                    Check(strongRow >= 0 && ScreenRow(app, strongRow + 1).Contains("#text"),
+                        "the tree draws a text row under <strong>");
+
+                    // Find reaches it. This is the reported symptom: text plainly present in the
+                    // source that a search could not turn up.
+                    ui.FindExpr = "Most recently updated";
+                    ui.FindOptions = FindFlags.Normal;
+                    ui.FindIn = SearchFilter.Text;
+                    ui.Tree.SelectedObject = Program.Model.Document.DocumentElement;
+                    Check(Program.TryFind(ui, false) == "1/1", "find locates text inside mixed content");
+                    Check(ReferenceEquals(ui.Tree.SelectedObject, lost),
+                        "and selects the text node holding it, not its parent");
+                    // Landing on the hit puts the text in the value pane, verbatim.
+                    Check(ui.ValueView.Text == "\nMost recently updated: February 10, 2026",
+                        $"the value pane shows the found text (was \"{Vis(ui.ValueView.Text)}\")");
+                    ui.FindExpr = null;
+
+                    // A text row is reachable, so it is also editable — and editing it must
+                    // write the text node itself rather than flattening the paragraph the way
+                    // setting InnerText on the container would.
+                    Check(EditNodeValue.CanEditValue(lost), "a text row can be edited");
+                    Check(!EditNodeValue.CanEditValue(mixedP), "its container cannot — that would drop the inline tags");
+                    ui.Undo.Push(new EditNodeValue(lost, " rewritten"));
+                    Check(Rows(mixedP) == "<strong>|#text|<br>|#text" && lost.Value == " rewritten",
+                        "editing a text row changes that text and nothing else");
+                    ui.Undo.Undo();
+                    Check(lost.Value == "\nMost recently updated: February 10, 2026",
+                        $"undo restores it (was \"{Vis(lost.Value)}\")");
+                }
+
+                // Back to the drill's own document for section 13.
+                Check(Program.TryOpen(ui, file) == null, "the original document reopens after the mixed-content drill");
+            }
+
             // --- 13. Byte-preserving saves. The oracle is the file itself: a save the user did
             // not ask to reformat must not reformat anything. Comparing bytes rather than
             // re-parsing is the point — every defect this guards against (a BOM appearing, LF
@@ -855,8 +950,30 @@ namespace Fux
             if (expectErrors) Check(sawRed, "error rows render red");
         }
 
+        // The rows the tree draws under a node, as "label|label|…" — the labels the user sees,
+        // in the order they are drawn. Comparing the whole string makes an unexpected extra row
+        // fail as loudly as a missing one, which a per-row Contains() would not.
+        private static string Rows(XmlNode n)
+            => string.Join("|", System.Linq.Enumerable.Select(Program.GetChildren(n), Program.GetLabel));
+
+        /// <summary>The same rows' values, for asserting what each one carries.</summary>
+        private static string Values(XmlNode n)
+            => string.Join("|", System.Linq.Enumerable.Select(Program.GetChildren(n), Program.GetValue));
+
+        /// <summary>Escape the line breaks in a failure message, so it stays on its own line.</summary>
+        private static string Vis(string s) => (s ?? "").Replace("\r", "\\r").Replace("\n", "\\n");
+
         private static string ScreenRow(Terminal.Gui.App.IApplication app, int row)
             => ScreenText(app).Split('\n')[row];
+
+        /// <summary>The first screen row containing <paramref name="s"/>, or -1.</summary>
+        private static int RowIndexOf(Terminal.Gui.App.IApplication app, string s)
+        {
+            var rows = ScreenText(app).Split('\n');
+            for (int i = 0; i < rows.Length; i++)
+                if (rows[i].Contains(s)) return i;
+            return -1;
+        }
 
         private static string ScreenText(Terminal.Gui.App.IApplication app)
         {

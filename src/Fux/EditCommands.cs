@@ -58,8 +58,10 @@ namespace Fux
         }
 
         // Editable when writing the value back can't destroy structure the tree shows:
-        // attribute/comment/CDATA/text/PI always; an element only while its children are
-        // all text-ish — the same rule Program.GetValue uses to show a scalar value.
+        // attribute/comment/CDATA/text/PI always; an element only while it is not a container,
+        // since setting InnerText on one would replace the very children the tree is drawing.
+        // That is Program.IsContainer — the same rule that decides whether the element has a
+        // scalar value to show in the first place, asked rather than restated.
         internal static bool CanEditValue(XmlNode n)
         {
             switch (n.NodeType)
@@ -71,11 +73,7 @@ namespace Fux
                 case XmlNodeType.ProcessingInstruction:
                     return true;
                 case XmlNodeType.Element:
-                    foreach (XmlNode c in n.ChildNodes)
-                        if (c.NodeType != XmlNodeType.Text && c.NodeType != XmlNodeType.CDATA &&
-                            c.NodeType != XmlNodeType.Whitespace && c.NodeType != XmlNodeType.SignificantWhitespace)
-                            return false;
-                    return true;
+                    return !Program.IsContainer(n);
                 default:
                     return false;
             }
@@ -681,7 +679,9 @@ namespace Fux
 
         // Neighbours within the node's own band: attributes step through the owner's attribute
         // collection, everything else through the shown siblings (Program.IsShown skips the
-        // text-ish nodes the tree folds into element values, so a nudge never lands on one).
+        // whitespace that is layout, and the text the tree folds into an element value, so a
+        // nudge never lands on a row that is not there — but it does step onto the text of mixed
+        // content, which has rows of its own and so is a legitimate neighbour to swap with).
         private static XmlNode PrevInBand(XmlNode n)
         {
             if (n is XmlAttribute a)
