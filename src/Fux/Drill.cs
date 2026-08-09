@@ -851,6 +851,102 @@ namespace Fux
                 Check(Program.TryOpen(ui, file) == null, "byte drill: the original document reopens");
             }
 
+            // --- 13c. Clipboard. ^X/^C/^V act on the selected node's *value*, which is what
+            // makes them do something with the tree focused — a text copy has no caret to act
+            // on there. What ^C decides to copy (CopyText) is asserted apart from the OS write,
+            // because CI's Linux runner has neither xclip nor a display: IsSupported is false
+            // there, so an oracle that needed a real clipboard would go untested on two of the
+            // three platforms. The write itself is still asserted on both branches — the one
+            // that copies, and the one that reports it can't.
+            var clipNode = file == null ? null : FindValuedNode(Program.Model.Document?.DocumentElement);
+            if (clipNode != null)
+            {
+                var clipValue = EditNodeValue.GetNodeValue(clipNode);
+                ui.Tree.EnsureVisible(clipNode);
+                ui.Tree.SelectedObject = clipNode;
+                ui.Tree.SetFocus();
+#pragma warning disable CS0618 // TextView: see the BuildUi note on the obsolete flag
+                var tvc = (Terminal.Gui.Views.TextView)ui.ValueView;
+#pragma warning restore CS0618
+
+                Check(Program.CopyText(ui) == clipValue, "^C from the tree copies the whole node value");
+
+                // A highlight in the value pane wins, and wins without the pane holding focus
+                // — that is what makes the Edit▸Copy row, which runs with the menu focused,
+                // agree with the key. A sentinel rather than a slice of the real value, so the
+                // two candidate strings cannot accidentally be the same one.
+                tvc.Text = "fux-highlight";
+                tvc.InvokeCommand(Terminal.Gui.Input.Command.SelectAll);
+                Check(!tvc.HasFocus && Program.CopyText(ui) == "fux-highlight",
+                    "a highlight in the value pane beats the node value");
+
+                // Reassigning the pane's Text is exactly what the tree's SelectionChanged
+                // handler does on every move, and TextView drops its selection when Text is
+                // set. Without that, ^C would keep copying a leftover range from a node the
+                // user has already navigated away from.
+                tvc.Text = Program.GetValue(clipNode) ?? "";
+                Check(!tvc.IsSelecting, "reassigning the pane text drops a stale highlight");
+                Check(Program.CopyText(ui) == clipValue, "…so ^C copies the node value again");
+
+                // Does this box actually have a clipboard? Probe with a sentinel, so the
+                // read-backs below prove fux wrote them rather than finding what we seeded.
+                bool clipOk;
+                try { clipOk = ui.App.Clipboard?.TrySetClipboardData("fux-drill-probe") ?? false; }
+                catch { clipOk = false; }
+
+                string onClipboard()
+                {
+                    string s = null;
+                    try { ui.App.Clipboard?.TryGetClipboardData(out s); } catch { s = null; }
+                    return s;
+                }
+
+                app.Keyboard.RaiseKeyDownEvent(Key.C.WithCtrl);
+                if (clipOk)
+                {
+                    Check(onClipboard() == clipValue, "^C puts the node value on the OS clipboard");
+                    Check(ui.ValueView.Title == "Value — copied", "the value pane reports the copy");
+                }
+                else
+                {
+                    Check(ui.ValueView.Title == "Value — no clipboard",
+                        "^C says so on a box with no clipboard");
+                }
+
+                // ^X copies then clears, as one undoable edit. With no clipboard it must refuse
+                // outright: cutting into a clipboard that didn't take the text would destroy
+                // the only copy of it.
+                app.Keyboard.RaiseKeyDownEvent(Key.X.WithCtrl);
+                if (clipOk)
+                {
+                    Check(EditNodeValue.GetNodeValue(clipNode) == "", "^X clears the node value");
+                    Check(onClipboard() == clipValue, "^X put the cut text on the OS clipboard");
+                    app.Keyboard.RaiseKeyDownEvent(Key.Z.WithCtrl);
+                    Check(EditNodeValue.GetNodeValue(clipNode) == clipValue, "^Z restores a cut value");
+
+                    ui.App.Clipboard.TrySetClipboardData("fux-pasted");
+                    app.Keyboard.RaiseKeyDownEvent(Key.V.WithCtrl);
+                    Check(EditNodeValue.GetNodeValue(clipNode) == "fux-pasted",
+                        "^V replaces the node value with the clipboard text");
+                    app.Keyboard.RaiseKeyDownEvent(Key.Z.WithCtrl);
+                    Check(EditNodeValue.GetNodeValue(clipNode) == clipValue, "^Z undoes a paste");
+                }
+                else
+                {
+                    Check(EditNodeValue.GetNodeValue(clipNode) == clipValue,
+                        "^X leaves the value alone when there is no clipboard to cut to");
+                }
+
+                // Undo leaves the model dirty even though the content matches, and §15's ^Q
+                // would then block on the unsaved-changes prompt. Reopen, as §13 does.
+                Program.SetValueStatus(ui, "");
+                Check(Program.TryOpen(ui, file) == null, "clipboard drill: the document reopens clean");
+            }
+            else
+            {
+                Console.Error.WriteLine("  (no node with a value; clipboard drill not exercised)");
+            }
+
             // --- 14. The About box carries the attribution the MIT notice requires.
             // Not a cosmetic check: fux bundles Microsoft's engine, and this is the only notice a
             // user who never opens the repo will read. Asserting on the specific strings, so
@@ -1084,6 +1180,20 @@ namespace Fux
             foreach (var c in Program.GetChildren(n))
             {
                 var hit = FindEditable(c);
+                if (hit != null) return hit;
+            }
+            return null;
+        }
+
+        // Like FindEditable, but insists on a node that actually holds text: the clipboard
+        // checks need something to copy, and an empty value is the one case ^C refuses.
+        private static XmlNode FindValuedNode(XmlNode n)
+        {
+            if (n == null) return null;
+            if (EditNodeValue.CanEditValue(n) && !string.IsNullOrEmpty(EditNodeValue.GetNodeValue(n))) return n;
+            foreach (var c in Program.GetChildren(n))
+            {
+                var hit = FindValuedNode(c);
                 if (hit != null) return hit;
             }
             return null;

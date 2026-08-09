@@ -256,6 +256,11 @@ namespace Fux
                 new MenuBarItem("_Edit", new View[]
                 {
                     new MenuItem("Edit _Value", "F2", () => ToggleValueEdit(ui), new Key()),
+                    // Hotkeys t/C/a: the obvious C-u-t and P-a-ste letters are taken by this
+                    // menu's other items (see the note below on the nudge rows).
+                    new MenuItem("Cu_t", "^X", () => CutValue(ui), new Key()),
+                    new MenuItem("_Copy", "^C", () => CopyValue(ui), new Key()),
+                    new MenuItem("P_aste", "^V", () => PasteValue(ui), new Key()),
                     new MenuItem("Re_name…", "^R", () => StartRename(ui), new Key()),
                     new MenuItem("_Insert…", "^N", () => StartInsert(ui), new Key()),
                     new MenuItem("_Delete", "Del", () => DeleteSelected(ui), new Key()),
@@ -419,6 +424,13 @@ namespace Fux
                 if (!ui.Editing && e.KeyCode == Key.Z.WithCtrl.KeyCode) { DoUndo(ui); e.Handled = true; }
                 else if (!ui.Editing && e.KeyCode == Key.Y.WithCtrl.KeyCode) { DoRedo(ui); e.Handled = true; }
                 else if (!ui.Editing && e.KeyCode == Key.DeleteChar.KeyCode) { DeleteSelected(ui); e.Handled = true; }
+                // ^C/^X/^V, centrally so the tree answers them too — see the clipboard section.
+                // Taking them here outside an edit means the value pane's own copy never runs
+                // then, which is deliberate: CopyValue does the same thing for a highlight and
+                // something useful for the tree, where TextView's copy has nothing to act on.
+                else if (!ui.Editing && e.KeyCode == Key.C.WithCtrl.KeyCode) { CopyValue(ui); e.Handled = true; }
+                else if (!ui.Editing && e.KeyCode == Key.X.WithCtrl.KeyCode) { CutValue(ui); e.Handled = true; }
+                else if (!ui.Editing && e.KeyCode == Key.V.WithCtrl.KeyCode) { PasteValue(ui); e.Handled = true; }
                 else if (!ui.Editing && IsNudgeKey(e, out var nudge)) { NudgeSelected(ui, nudge); e.Handled = true; }
                 else if (!ui.Editing && e.KeyCode == Key.O.WithCtrl.KeyCode) { StartOpen(ui); e.Handled = true; }
                 // No Save As chord on purpose: Ctrl+Shift+<letter> is indistinguishable from
@@ -543,6 +555,99 @@ namespace Fux
             tv.Title = "Value";
             tv.Text = node == null ? "" : GetValue(node) ?? "";
             ui.Tree.SetFocus();
+        }
+
+        // --------------------------------------------------------------------
+        // Clipboard: ^X/^C/^V and the matching Edit menu rows.
+        //
+        // Inside a live F2 edit these are Terminal.Gui's own, acting on the text
+        // in the pane — that is what they mean in any editor, and the value pane
+        // is a text editor at that moment. Everywhere else they act on the
+        // selected node's *value*, which is what makes them work with the tree
+        // focused, where there is no caret for a text copy to act on. Same split
+        // ^Z/^Y/Del already use (see the app-wide key handler).
+        //
+        // The keys are routed centrally rather than bound to the value pane, so
+        // the tree answers them; dialogs stay exempt because ModalDepth makes
+        // that handler inert, leaving a Find field's own ^C/^V intact.
+        //
+        // The decision each one makes is a separate function from the OS write,
+        // so --drill can assert on the decision without a clipboard: CI's Linux
+        // runner has no xclip and no display, so IsSupported is false there.
+        // --------------------------------------------------------------------
+
+        // What ^C should put on the clipboard: the highlight if the user made one in
+        // the value pane, otherwise the whole value of the selected node. Null when
+        // there is nothing to copy — an empty copy would silently wipe whatever the
+        // user already had on the clipboard, which is worse than doing nothing.
+        //
+        // The highlight wins because it is the gesture the user just performed. It
+        // survives losing focus, which is what makes Edit▸Copy (menu focused) agree
+        // with the key, and it cannot go stale: moving the tree selection reassigns
+        // the pane's Text, and TextView drops its selection when Text is set.
+        internal static string CopyText(Ui ui)
+        {
+            var tv = (TextView)ui.ValueView;
+            var n = ui.Tree.SelectedObject;
+            string text = tv.IsSelecting ? tv.SelectedText : (n == null ? null : GetValue(n));
+            return string.IsNullOrEmpty(text) ? null : text;
+        }
+
+        private static void CopyValue(Ui ui)
+        {
+            if (ui == null) return;
+            if (ui.Editing) { ui.ValueView.InvokeCommand(Terminal.Gui.Input.Command.Copy); return; }
+
+            var text = CopyText(ui);
+            if (text == null) { SetValueStatus(ui, "nothing to copy"); return; }
+            if (TrySetClipboard(ui, text)) SetValueStatus(ui, "copied");
+        }
+
+        // ^X copies the node's value and then clears it, as one undoable edit. It is
+        // not a node cut: fux has no node clipboard, and deleting a subtree on a key
+        // that everywhere else means "cut this text" is how people lose work. The
+        // clipboard write comes first and a failed one aborts — cutting into a
+        // clipboard that didn't take the text would destroy the only copy.
+        private static void CutValue(Ui ui)
+        {
+            if (ui == null) return;
+            if (ui.Editing) { ui.ValueView.InvokeCommand(Terminal.Gui.Input.Command.Cut); return; }
+
+            var n = ui.Tree.SelectedObject;
+            if (n == null || !EditNodeValue.CanEditValue(n)) return;
+            var text = GetValue(n);
+            if (string.IsNullOrEmpty(text)) { SetValueStatus(ui, "nothing to cut"); return; }
+            if (!TrySetClipboard(ui, text)) return;
+            ui.Undo.Push(new EditNodeValue(n, ""));
+            SetValueStatus(ui, "cut");
+        }
+
+        // ^V replaces the selected node's value with the clipboard text, undoably.
+        private static void PasteValue(Ui ui)
+        {
+            if (ui == null) return;
+            if (ui.Editing) { ui.ValueView.InvokeCommand(Terminal.Gui.Input.Command.Paste); return; }
+
+            var n = ui.Tree.SelectedObject;
+            if (n == null || !EditNodeValue.CanEditValue(n)) return;
+            string text = null;
+            try { ui.App.Clipboard?.TryGetClipboardData(out text); } catch { text = null; }
+            if (string.IsNullOrEmpty(text)) { SetValueStatus(ui, "clipboard empty"); return; }
+            ui.Undo.Push(new EditNodeValue(n, text));
+            SetValueStatus(ui, "pasted");
+        }
+
+        // The OS clipboard, through whatever the driver found for this platform:
+        // NSPasteboard on macOS, xclip on X11, powershell.exe under WSL, the Win32
+        // clipboard on Windows. Try* rather than the throwing pair — on a box with no
+        // clipboard at all a copy should say so, not take the editor down with it.
+        private static bool TrySetClipboard(Ui ui, string text)
+        {
+            bool ok;
+            try { ok = ui.App.Clipboard?.TrySetClipboardData(text) ?? false; }
+            catch { ok = false; }
+            if (!ok) SetValueStatus(ui, "no clipboard");
+            return ok;
         }
 
 #pragma warning restore CS0618
@@ -816,16 +921,21 @@ namespace Fux
             return $"{index}/{total}";
         }
 
-        // Find reports into the value pane's border title, next to the hit it just selected.
-        // Not a message box: at the end of a ring, F3 popping a dialog on every press would be
-        // unusable. Not the status bar either — that row is already full at 100 columns, and an
-        // extra slot there renders clipped to two characters (measured, not guessed). Editing
-        // takes the title back (EndValueEdit), which is the right precedence.
-        private static void SetFindStatus(Ui ui, string text)
+        // Transient status reports into the value pane's border title, next to whatever the
+        // command just acted on. Not a message box: at the end of a find ring, F3 popping a
+        // dialog on every press would be unusable. Not the status bar either — that row is
+        // already full at 100 columns, and an extra slot there renders clipped to two
+        // characters (measured, not guessed). Editing takes the title back (EndValueEdit),
+        // which is the right precedence. An empty text restores the plain title.
+        internal static void SetValueStatus(Ui ui, string text)
         {
             if (ui?.ValueView == null || ui.Editing) return;
-            ui.ValueView.Title = string.IsNullOrEmpty(text) ? "Value" : $"Value — find {text}";
+            ui.ValueView.Title = string.IsNullOrEmpty(text) ? "Value" : $"Value — {text}";
         }
+
+        // Find labels its own reports so "1/3" can't be mistaken for anything else.
+        private static void SetFindStatus(Ui ui, string text)
+            => SetValueStatus(ui, string.IsNullOrEmpty(text) ? "" : $"find {text}");
 
         // Ctrl+Shift+Arrow nudges the selected node: up/down reorder it among its siblings,
         // left/right change its level. Refusals are quiet (see TryNudge) — running into the

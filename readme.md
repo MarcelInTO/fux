@@ -42,6 +42,7 @@ file.
 | `F9` | menu |
 | `F6` | cycle panes |
 | `F2` / `Enter` | edit value in place (`F2` commit, `Esc` cancel) |
+| `^C` / `^X` / `^V` | copy / cut / paste the selected node's value |
 | `^R` | rename element / attribute / PI |
 | `^N` | insert element, attribute, comment or PI |
 | `Del` | delete node |
@@ -56,6 +57,13 @@ file.
 Save As lives in the File menu rather than on a chord: `Ctrl+Shift+S` is
 indistinguishable from `Ctrl+S` in legacy terminal encoding, and an advertised
 shortcut that quietly saves the wrong file is worse than no shortcut.
+
+Copy is `^C`, not your terminal's copy. fux reads the mouse, so dragging in the
+value pane makes a selection fux knows about and the terminal does not — `Cmd+C` /
+`Ctrl+Shift+C` would copy the terminal's own selection, which is empty. `^C` copies
+the highlight if there is one and the whole node value otherwise, to the real system
+clipboard. To make a terminal selection instead (to grab part of the tree, say), hold
+`Alt` / `Option` while dragging: that bypasses mouse reporting in most terminals.
 
 ## What it does
 
