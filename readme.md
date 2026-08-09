@@ -27,7 +27,9 @@ pass `RID=...`. `make help` lists everything.
 ```sh
 fux document.xml           # open the editor
 fux --dump document.xml    # headless structure dump
-fux --validate doc.xml     # headless XSD validation
+fux --validate doc.xml     # headless XSD validation (exit 1 if there are errors)
+fux --help                 # usage summary
+fux --version              # version only
 ```
 
 `.htm`, `.html`, `.json` and `.csv` files are converted to XML on open, following

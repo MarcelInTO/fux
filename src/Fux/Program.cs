@@ -17,12 +17,41 @@ namespace Fux
 
         private static int Main(string[] args)
         {
+            if (Array.IndexOf(args, "--help") >= 0 || Array.IndexOf(args, "-h") >= 0)
+            {
+                Console.WriteLine(UsageText());
+                return 0;
+            }
+            if (Array.IndexOf(args, "--version") >= 0)
+            {
+                Console.WriteLine("fux " + typeof(Program).Assembly.GetName().Version.ToString(3));
+                return 0;
+            }
+
             var dump = Array.IndexOf(args, "--dump") >= 0;
             var validate = Array.IndexOf(args, "--validate") >= 0;
             var drill = Array.IndexOf(args, "--drill") >= 0;
             string file = null;
+            // An unrecognised option must not fall through to the editor. This loop used to
+            // skip anything starting with "--", so `fux --help` opened an empty document and
+            // sat waiting for a keypress: on a downloaded binary, run by someone finding out
+            // what it does, that is indistinguishable from a hang. Refuse it and say so.
+            // Every argument is checked, not just up to the first file name, so a typo after
+            // the document is caught too.
             foreach (var a in args)
-                if (!a.StartsWith("--")) { file = a; break; }
+            {
+                if (a.Length > 0 && a[0] == '-')
+                {
+                    if (Array.IndexOf(KnownFlags, a) < 0)
+                    {
+                        Console.Error.WriteLine("fux: unknown option '" + a + "'");
+                        Console.Error.WriteLine("Try 'fux --help'.");
+                        return 2;
+                    }
+                    continue;
+                }
+                if (file == null) file = a;
+            }
 
             // Resolve to an absolute path up front. The engine builds its base URI from the
             // working directory without a trailing slash, so a relative path would resolve
@@ -664,6 +693,38 @@ namespace Fux
         // rather than quietly lose the Microsoft notice. Lines are hard-wrapped narrow enough to
         // fit an 80-column terminal, since MessageBox sizes itself to the longest one. The
         // version comes from the assembly (set in Fux.csproj) so it cannot drift from the build.
+        // Every option Main accepts. "--drill" is deliberately absent from UsageText below —
+        // it is the interactive self-test, useful to a contributor and noise to everyone
+        // else — but it belongs here, or the argument check would reject the thing CI runs.
+        private static readonly string[] KnownFlags =
+            { "--dump", "--validate", "--drill", "--help", "-h", "--version" };
+
+        // What `fux --help` prints. Kept to plain stdout on purpose: the first thing anyone
+        // does with an unfamiliar binary is ask it what it is, and that answer has to arrive
+        // without a TTY, a document, or a running UI. Version comes from the assembly, so it
+        // matches the release the binary was downloaded from.
+        internal static string UsageText()
+        {
+            var version = typeof(Program).Assembly.GetName().Version.ToString(3);
+            return "fux " + version + " — a cross-platform terminal XML editor.\n"
+                + "\n"
+                + "Usage:\n"
+                + "  fux <file>              open the editor on a document\n"
+                + "  fux --dump <file>       print the document structure and exit\n"
+                + "  fux --validate <file>   report XSD validation errors and exit\n"
+                + "  fux --version           print the version and exit\n"
+                + "  fux --help              print this message and exit\n"
+                + "\n"
+                + "--validate exits 1 if the document has validation errors, else 0.\n"
+                + "\n"
+                + ".htm, .html, .json and .csv files are converted to XML on open. Saving an\n"
+                + "imported document writes XML to a sibling file rather than overwriting it.\n"
+                + "\n"
+                + "Keys: F9 menu · F6 cycle panes · F2/Enter edit · ^F find · ^S save · ^Q quit\n"
+                + "\n"
+                + "https://github.com/MarcelInTO/fux";
+        }
+
         internal static string AboutText()
         {
             return "fux " + typeof(Program).Assembly.GetName().Version.ToString(3) + "\n"
