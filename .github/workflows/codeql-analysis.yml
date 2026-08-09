@@ -1,27 +1,43 @@
 name: "CodeQL"
 
+# Static analysis of the code fux actually ships: the Fux TUI and the reused XmlNotepad
+# `Model` engine it links. Everything else in src/ — the WinForms Application, the
+# installer and bundle projects, WindowsInput, XmlStats — is upstream's, is not built by
+# fux, and cannot even be built off Windows; analyzing it would spend CI minutes producing
+# alerts against code this product does not compile, let alone ship.
+#
+# This replaces upstream's version of the file, which MSBuilt src/XmlNotepad.sln on
+# windows-latest and triggered on a `master` branch that does not exist here — so its push
+# and pull_request triggers had never once fired, and only the weekly schedule ran.
+# Scoped to `main`, matching ci.yml: `upstream-master` is a pristine mirror of
+# microsoft/XmlNotepad and has no fux project in it.
+
 on:
   push:
     paths-ignore:
       - 'docs/**'
-    branches:
-      - master
+    branches: [ main ]
   pull_request:
     paths-ignore:
       - 'docs/**'
-    branches:
-      - master
+    branches: [ main ]
   schedule:
     - cron: '40 14 * * 6'
+  workflow_dispatch:
 
 permissions:
-    security-events: write
-    contents: read
+  security-events: write
+  contents: read
+  actions: read
+
+concurrency:
+  group: codeql-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   analyze:
     name: Analyze
-    runs-on: windows-latest
+    runs-on: ubuntu-latest
 
     strategy:
       fail-fast: false
@@ -29,32 +45,31 @@ jobs:
         language: [ 'csharp' ]
 
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v7.0.0
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-    - name: Setup NuGet.exe
-      uses: NuGet/setup-nuget@v4
+      # net10.0, required by Terminal.Gui v2 — the same SDK ci.yml builds with, so CodeQL
+      # analyzes the assemblies that actually ship rather than a different build of them.
+      - name: Setup .NET 10 SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
 
-    - name: Setup MSBuild.exe
-      uses: microsoft/setup-msbuild@v3.0.0
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v4.36.3
+        with:
+          languages: ${{ matrix.language }}
+          queries: security-and-quality
 
-    - name: Restore the application
-      run: nuget restore ./src/XmlNotepad.sln
+      # An explicit build between init and analyze, not autobuild: autobuild would find
+      # src/xmlnotepad.sln and try to build the whole WinForms tree, which fails on Linux.
+      # Building Fux.csproj pulls in Model.csproj by project reference, so both are traced.
+      # (Model's PreBuild writes the gitignored src/Model/ApiKey.cs — src/Directory.Build.targets
+      # makes that cross-platform, so a clean checkout needs no stub injected here.)
+      - name: Build the fux TUI and the Model engine
+        run: dotnet build src/Fux/Fux.csproj -c Release
 
-    - name: Initialize CodeQL
-      uses: github/codeql-action/init@v4.36.3
-      with:
-        queries: security-and-quality
-        languages: csharp
-
-    # Restore the application again to avoid codeql messing things up
-    - name: Restore the application
-      run: nuget restore ./src/XmlNotepad.sln
-
-    - name: Build the application
-      run: |
-        echo namespace XmlNotepad { public partial class AppAnalytics { private const string ApiKey=""; } }  >> .\src\Model\ApiKey.cs
-        msbuild ./src/XmlNotepad.sln /p:Configuration=Release "/p:Platform=Any CPU" /verbosity:minimal /p:UseSharedCompilation=False
-
-    - name: Perform CodeQL Analysis
-      uses: github/codeql-action/analyze@v4.36.3
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v4.36.3
+        with:
+          category: "/language:${{ matrix.language }}"
