@@ -19,7 +19,7 @@ BIN     := bin
 EXE     := $(BIN)/fux
 PREFIX  ?= /usr/local
 DESTDIR ?=
-FILE    ?= src/UnitTests/emp.xml
+FILE    ?= sandbox/testdata/emp.xml
 
 # Detect the host runtime identifier for a native, self-contained build.
 UNAME_S := $(shell uname -s)

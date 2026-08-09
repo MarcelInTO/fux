@@ -8,12 +8,17 @@ and license notices. fux's own license is in [LICENSE](LICENSE).
 ## 1. Microsoft XML Notepad
 
 fux is a derivative work of **Microsoft XML Notepad**. Source from that project is
-incorporated directly into this repository — most substantially the document engine
-under `src/Model/` (`XmlCache`, `DomLoader`, `Checker`, `SchemaCache`, `XmlCsvReader`,
-`UndoManager` and related types), plus `src/XmlNotepad/`, `src/Application/`,
-`src/XmlStats/`, `src/WindowsInput/`, `src/Version/`, the installer projects, and the
-documentation under `docs/`. Some of that source has been modified; much of it is
-unmodified. Individual files retain their original copyright headers where present.
+incorporated directly into this repository: the document engine under `src/Model/`
+(`XmlCache`, `DomLoader`, `Checker`, `SchemaCache`, `XmlCsvReader`, `UndoManager` and
+related types), the build properties it imports at `src/Version/Version.props`, and the
+XML/XSD fixtures under `sandbox/testdata/`. Some of that source has been modified; much
+of it is unmodified. Individual files retain their original copyright headers where
+present.
+
+Earlier revisions of this repository also carried upstream's WinForms application,
+installer projects, `XmlStats`, `WindowsInput` and documentation. fux never built any of
+it, and it has since been removed from the working tree; it remains in git history and on
+the `upstream-master` branch, which is a pristine mirror of microsoft/XmlNotepad.
 
 - Project: https://github.com/microsoft/XmlNotepad
 - License: MIT

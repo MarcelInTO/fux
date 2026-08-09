@@ -55,7 +55,7 @@ jobs:
       - name: Headless render smoke (Fux --dump)
         shell: bash
         run: |
-          out=$(dotnet run --project src/Fux -c Release -- --dump src/UnitTests/emp.xml)
+          out=$(dotnet run --project src/Fux -c Release -- --dump sandbox/testdata/emp.xml)
           echo "$out"
           echo "$out" | grep -q "<Employees>" || { echo "::error::--dump output missing <Employees>"; exit 1; }
           echo "$out" | grep -q "@id"          || { echo "::error::--dump output missing @id attribute"; exit 1; }
@@ -77,7 +77,7 @@ jobs:
       - name: Engine validation smoke (valid doc -> 0 errors)
         shell: bash
         run: |
-          out=$(dotnet run --project sandbox/smoke -c Release -- src/UnitTests/emp.xml)
+          out=$(dotnet run --project sandbox/smoke -c Release -- sandbox/testdata/emp.xml)
           echo "$out"
           echo "$out" | grep -q "1 schema(s) associated" || { echo "::error::emp.xsd was not associated"; exit 1; }
           echo "$out" | grep -q "0 error(s)"              || { echo "::error::expected 0 validation errors on emp.xml"; exit 1; }
@@ -87,7 +87,7 @@ jobs:
       - name: Fux validation smoke (valid doc -> no issues)
         shell: bash
         run: |
-          out=$(dotnet run --project src/Fux -c Release -- --validate src/UnitTests/emp.xml)
+          out=$(dotnet run --project src/Fux -c Release -- --validate sandbox/testdata/emp.xml)
           echo "$out"
           echo "$out" | grep -q "no issues" || { echo "::error::expected no issues on emp.xml"; exit 1; }
 
@@ -95,7 +95,7 @@ jobs:
         shell: bash
         run: |
           set +e
-          out=$(dotnet run --project src/Fux -c Release -- --validate src/UnitTests/emp-invalid.xml)
+          out=$(dotnet run --project src/Fux -c Release -- --validate sandbox/testdata/emp-invalid.xml)
           code=$?
           set -e
           echo "$out"
@@ -117,7 +117,7 @@ jobs:
         shell: bash
         run: |
           fail=0
-          for f in src/UnitTests/emp-invalid.xml sandbox/testdata/import.json sandbox/testdata/import.csv; do
+          for f in sandbox/testdata/emp-invalid.xml sandbox/testdata/import.json sandbox/testdata/import.csv; do
             echo "::group::drill $f"
             set +e
             if [ "$RUNNER_OS" = "macOS" ]; then

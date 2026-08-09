@@ -31,7 +31,7 @@ namespace Fux.Smoke
     {
         private static int Main(string[] args)
         {
-            var file = args.Length > 0 ? args[0] : "src/UnitTests/emp.xml";
+            var file = args.Length > 0 ? args[0] : "sandbox/testdata/emp.xml";
             // Resolve relative -> absolute: the engine resolves a relative path against the
             // parent of the working directory, so hand it a full path (same fix as Fux).
             file = System.IO.Path.GetFullPath(file);

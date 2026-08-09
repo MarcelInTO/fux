@@ -1,25 +1,20 @@
 name: "CodeQL"
 
 # Static analysis of the code fux actually ships: the Fux TUI and the reused XmlNotepad
-# `Model` engine it links. Everything else in src/ — the WinForms Application, the
-# installer and bundle projects, WindowsInput, XmlStats — is upstream's, is not built by
-# fux, and cannot even be built off Windows; analyzing it would spend CI minutes producing
-# alerts against code this product does not compile, let alone ship.
+# `Model` engine it links, which since the upstream tree was pruned is all the repository
+# still carries.
 #
 # This replaces upstream's version of the file, which MSBuilt src/XmlNotepad.sln on
-# windows-latest and triggered on a `master` branch that does not exist here — so its push
-# and pull_request triggers had never once fired, and only the weekly schedule ran.
-# Scoped to `main`, matching ci.yml: `upstream-master` is a pristine mirror of
-# microsoft/XmlNotepad and has no fux project in it.
+# windows-latest — analyzing the WinForms application, the installer projects,
+# WindowsInput and XmlStats, none of which fux compiled — and triggered on a `master`
+# branch that does not exist here, so its push and pull_request triggers had never once
+# fired and only the weekly schedule ran. Scoped to `main`, matching ci.yml:
+# `upstream-master` is a pristine mirror of microsoft/XmlNotepad with no fux project in it.
 
 on:
   push:
-    paths-ignore:
-      - 'docs/**'
     branches: [ main ]
   pull_request:
-    paths-ignore:
-      - 'docs/**'
     branches: [ main ]
   schedule:
     - cron: '40 14 * * 6'
@@ -61,8 +56,8 @@ jobs:
           languages: ${{ matrix.language }}
           queries: security-and-quality
 
-      # An explicit build between init and analyze, not autobuild: autobuild would find
-      # src/xmlnotepad.sln and try to build the whole WinForms tree, which fails on Linux.
+      # An explicit build between init and analyze rather than autobuild, so what gets
+      # traced is exactly what ci.yml ships and not whatever autobuild decides to find.
       # Building Fux.csproj pulls in Model.csproj by project reference, so both are traced.
       # (Model's PreBuild writes the gitignored src/Model/ApiKey.cs — src/Directory.Build.targets
       # makes that cross-platform, so a clean checkout needs no stub injected here.)
