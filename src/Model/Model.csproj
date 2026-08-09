@@ -18,7 +18,6 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Win32.Registry" Version="5.0.0" />
-    <PackageReference Include="SimpleGoogleAnalytics" Version="1.1.6" />
   </ItemGroup>
 
   <ItemGroup>
@@ -35,9 +34,5 @@
       <LastGenOutput>Strings.Designer.cs</LastGenOutput>
     </EmbeddedResource>
   </ItemGroup>
-
-  <Target Name="PreBuild" BeforeTargets="PreBuildEvent">
-    <Exec Command="echo namespace XmlNotepad { public partial class AppAnalytics { private const string ApiKey=&quot;%25XMLNOTEPAD_ANALYTICSKEY%25&quot;; } } &gt; $(MSBuildThisFileDirectory)ApiKey.cs " />
-  </Target>
 
 </Project>
