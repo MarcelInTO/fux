@@ -51,6 +51,20 @@ jobs:
       - name: Build engine + TUI (Release)
         run: dotnet build src/Fux/Fux.csproj -c Release
 
+      # fux ships as a binary people download and inspect, and the reused engine used to
+      # carry XmlNotepad's telemetry: an AppAnalytics class and the SimpleGoogleAnalytics
+      # package, whose Google tracking id was findable in the shipped executable. It was
+      # inert — nothing constructed it and its api key compiled to "" — but "unreachable"
+      # is a poor answer to someone who has already found it. Assert on the dependency
+      # graph so a transitive dependency cannot quietly reintroduce it.
+      - name: No analytics in the dependency graph
+        shell: bash
+        run: |
+          graph=$(dotnet list src/Fux/Fux.csproj package --include-transitive)
+          echo "$graph" | grep -i "analytics" && {
+            echo "::error::an analytics package is back in the dependency graph"; exit 1; }
+          echo "no analytics package in the graph"
+
       # The contract a downloaded binary is judged by before anything else: asking it what
       # it is has to answer, and a mistyped option has to say so. Both used to fall through
       # to the editor, which without a TTY reads as a hang — hence timeout-minutes, so a

@@ -1005,9 +1005,6 @@ namespace XmlNotepad
             this["XmlDiffIgnoreDtd"] = true;
             this["XmlDiffHideIdentical"] = false;
 
-            // analytics question has been answered...
-            this["AllowAnalytics"] = false;
-            this["AnalyticsClientId"] = "";
             this["PromptOnReload"] = true;
 
             // default text editor

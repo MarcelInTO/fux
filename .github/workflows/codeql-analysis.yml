@@ -59,8 +59,6 @@ jobs:
       # An explicit build between init and analyze rather than autobuild, so what gets
       # traced is exactly what ci.yml ships and not whatever autobuild decides to find.
       # Building Fux.csproj pulls in Model.csproj by project reference, so both are traced.
-      # (Model's PreBuild writes the gitignored src/Model/ApiKey.cs — src/Directory.Build.targets
-      # makes that cross-platform, so a clean checkout needs no stub injected here.)
       - name: Build the fux TUI and the Model engine
         run: dotnet build src/Fux/Fux.csproj -c Release
 
