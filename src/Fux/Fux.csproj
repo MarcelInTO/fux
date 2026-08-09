@@ -33,7 +33,14 @@
     <Copyright>Copyright © 2026 Marcel Samek. Portions Copyright © Microsoft Corporation.</Copyright>
     <Description>A cross-platform terminal XML editor, derived from Microsoft XML Notepad.</Description>
     <RepositoryUrl>https://github.com/MarcelInTO/fux</RepositoryUrl>
-    <Version>0.1.0</Version>
+    <!--
+      Placeholder, not a release number. release.yml overrides it with -p:Version from the
+      git tag, so this value only ever reaches a build from source. Naming that build 0.0.0
+      keeps it from impersonating a release: it used to say 0.1.0, which stayed frozen while
+      real releases moved on, so `make` produced a binary reporting a version that had long
+      since shipped and meant something else.
+    -->
+    <Version>0.0.0-dev</Version>
   </PropertyGroup>
 
   <ItemGroup>
