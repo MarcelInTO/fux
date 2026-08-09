@@ -10,9 +10,38 @@ schema cache, DOM loader, undo manager) behind a
 [Terminal.Gui](https://github.com/gui-cs/Terminal.Gui/) v2 front end. See
 [Origins](#origins) for the full story.
 
+## Install
+
+On macOS or Linux, with [Homebrew](https://brew.sh):
+
+```sh
+brew install marcelinto/tap/fux
+```
+
+Otherwise download the archive for your platform from
+[Releases](https://github.com/MarcelInTO/fux/releases), unpack it, and put `fux` on
+your `PATH`. Nothing else is needed — the binary bundles its own runtime.
+
+```sh
+tar xzf fux-*-osx-arm64.tar.gz
+sudo install -m 0755 fux-*/fux /usr/local/bin/fux
+```
+
+Builds are published for macOS (arm64/x64), Linux (x64/arm64) and Windows (x64).
+
+The binaries are unsigned, so macOS quarantines anything downloaded through a
+browser: if Gatekeeper refuses to launch it, download with `curl` instead or clear
+the flag with `xattr -d com.apple.quarantine /usr/local/bin/fux`. Windows SmartScreen
+warns for the same reason. Homebrew sidesteps this — it does not set the quarantine
+flag — which is why it is listed first.
+
+Each release carries a `SHA256SUMS` file, and the archives have build provenance you
+can check with `gh attestation verify <archive> --repo MarcelInTO/fux`.
+
 ## Build
 
-Requires the .NET 10 SDK. Everything else comes from NuGet.
+To build from source instead, you need the .NET 10 SDK. Everything else comes from
+NuGet.
 
 ```sh
 make                 # self-contained single-file binary for this host -> bin/fux

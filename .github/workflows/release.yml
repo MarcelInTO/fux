@@ -1,0 +1,365 @@
+name: fux release
+
+# Builds the downloadable binaries for a tagged release and attaches them to a GitHub
+# Release, so that using fux does not require a .NET SDK and a `make`.
+#
+# Deliberately separate from ci.yml. CI proves `main` is healthy on every push; this
+# proves one specific commit, stamped with one specific version, produces artifacts that
+# actually run. The two overlap in what they build and differ in what they guarantee.
+#
+# Trigger: pushing a tag `vX.Y.Z` (or `vX.Y.Z-rc.1`). `workflow_dispatch` builds and
+# uploads the same archives as workflow artifacts but creates no Release — a dry run of
+# the packaging, so a mistake costs a re-run rather than a burnt version number.
+#
+# NOTE ON TAGS: this repository still carries 57 inherited XmlNotepad tags (2.8.0.x)
+# locally, none of which are on the remote. `git push --tags` would publish all of them
+# and this workflow would try to build every one. Push the single tag by name:
+#     git tag -a v0.2.0 -m "fux 0.2.0" && git push origin v0.2.0
+
+on:
+  push:
+    tags: [ 'v*' ]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to package, without the leading v (e.g. 0.2.0-rc.1). Dry run: no Release is created.'
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: ${{ matrix.rid }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # `drill` marks the rows whose RID is native to the runner, so the published
+          # binary can actually be executed here. macOS builds must happen on a macOS
+          # runner regardless: the SDK ad-hoc signs the osx apphost, and Apple Silicon
+          # refuses to execute an unsigned one.
+          - { os: ubuntu-latest,  rid: linux-x64,   ext: '',     archive: tar, drill: true  }
+          - { os: ubuntu-latest,  rid: linux-arm64, ext: '',     archive: tar, drill: false }
+          - { os: macos-latest,   rid: osx-arm64,   ext: '',     archive: tar, drill: true  }
+          - { os: macos-latest,   rid: osx-x64,     ext: '',     archive: tar, drill: false }
+          - { os: windows-latest, rid: win-x64,     ext: '.exe', archive: zip, drill: false }
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # The tag is the single source of truth for the version, so a shipped binary can
+      # never disagree with the release it was downloaded from. Read through an env var
+      # rather than interpolated into the script body: `inputs.version` is attacker-shaped
+      # input on a dispatch, and `${{ }}` inside `run:` is a shell-injection sink.
+      - name: Resolve version from tag
+        id: version
+        shell: bash
+        env:
+          RAW_VERSION: ${{ github.event_name == 'push' && github.ref_name || inputs.version }}
+        run: |
+          v="${RAW_VERSION#v}"
+          echo "$v" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z][0-9A-Za-z.-]*)?$' || {
+            echo "::error::'$v' is not a X.Y.Z or X.Y.Z-prerelease version"; exit 1; }
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          # The About box reads AssemblyVersion, which is numeric-only: a `0.2.0-rc.1`
+          # build reports `0.2.0`. Keep the core separately so the drill assertion below
+          # compares like with like instead of failing on every prerelease.
+          echo "core=${v%%-*}" >> "$GITHUB_OUTPUT"
+          echo "fux $v (${{ matrix.rid }})" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Setup .NET 10 SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      # -p:Version overrides the placeholder in Fux.csproj as a global MSBuild property.
+      # It reaches the About box, which reads the assembly version at runtime.
+      - name: Publish self-contained single-file binary
+        shell: bash
+        run: >
+          dotnet publish src/Fux/Fux.csproj -c Release
+          -r ${{ matrix.rid }} --self-contained true
+          -p:PublishSingleFile=true
+          -p:Version=${{ steps.version.outputs.version }}
+          -o publish
+
+      # Third-party native libraries are NOT bundled into a single-file publish; they are
+      # dropped beside it. Today the only one is libonigwrap, pulled transitively by
+      # TextMateSharp (a Terminal.Gui syntax-highlighting dependency fux never invokes) —
+      # the drill below passes with the binary alone, which is why the archive ships just
+      # the executable. Surface any new arrivals in the log: a native library fux *does*
+      # load would make the shipped binary non-standalone on the two RIDs no runner here
+      # can execute.
+      - name: Report stray native libraries
+        shell: bash
+        run: |
+          strays=$(find publish -maxdepth 1 \( -name '*.so' -o -name '*.dylib' -o -name '*.dll' \) -exec basename {} \;)
+          if [ -n "$strays" ]; then
+            echo "::warning::native libraries left beside the single-file binary: $(echo $strays)"
+          else
+            echo "no stray native libraries"
+          fi
+
+      # Stage what the user unpacks. A directory rather than loose files, so extracting
+      # into a populated download folder does not scatter LICENSE and notices across it;
+      # Homebrew strips the single top-level directory automatically. The notices ride
+      # along because MIT's attribution requirement follows the binary, not just the repo.
+      - name: Stage archive contents
+        id: stage
+        shell: bash
+        run: |
+          stage="fux-${{ steps.version.outputs.version }}-${{ matrix.rid }}"
+          mkdir -p "dist/$stage"
+          cp "publish/fux${{ matrix.ext }}" "dist/$stage/"
+          cp LICENSE THIRD-PARTY-NOTICES.md readme.md "dist/$stage/"
+          echo "stage=$stage" >> "$GITHUB_OUTPUT"
+          ls -l "dist/$stage"
+
+      # Everything below runs against the staged copy — the exact bytes that go into the
+      # archive — not against `dotnet run`. That is the point of testing here at all:
+      # ci.yml already proves the source works, this proves the download does.
+      - name: Smoke the staged binary
+        if: matrix.drill
+        shell: bash
+        run: |
+          bin="./dist/${{ steps.stage.outputs.stage }}/fux"
+          out=$("$bin" --dump sandbox/testdata/emp.xml)
+          echo "$out" | grep -q "<Employees>" || { echo "::error::staged binary produced no tree"; exit 1; }
+          # The first command anyone runs on a fresh download, and the version it reports is
+          # the one the release page promises.
+          "$bin" --help < /dev/null | grep -q '^Usage:$' || { echo "::error::staged binary printed no usage"; exit 1; }
+          "$bin" --version < /dev/null | grep -qxF "fux ${{ steps.version.outputs.core }}" \
+            || { echo "::error::--version disagrees with the tag"; exit 1; }
+
+      - name: TUI drill against the staged binary
+        if: matrix.drill
+        shell: bash
+        run: |
+          bin="$PWD/dist/${{ steps.stage.outputs.stage }}/fux"
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            script -q /dev/null "$bin" --drill sandbox/testdata/emp-invalid.xml > drill.out 2>&1 || true
+          else
+            script -qec "$bin --drill sandbox/testdata/emp-invalid.xml" /dev/null > drill.out 2>&1 || true
+          fi
+          sed 's/\x1b\[[0-9;?]*[a-zA-Z]//g' drill.out | grep -aE '^\s*\[(ok|FAIL)\]|DRILL:' || true
+          grep -aq "DRILL: PASS" drill.out || { echo "::error::staged binary failed its own drill"; exit 1; }
+          grep -aqF "build version (${{ steps.version.outputs.core }})" drill.out \
+            || { echo "::error::About box does not report ${{ steps.version.outputs.core }}"; exit 1; }
+
+      - name: Archive (tar.gz)
+        if: matrix.archive == 'tar'
+        shell: bash
+        run: tar -C dist -czf "dist/${{ steps.stage.outputs.stage }}.tar.gz" "${{ steps.stage.outputs.stage }}"
+
+      - name: Archive (zip)
+        if: matrix.archive == 'zip'
+        shell: pwsh
+        run: Compress-Archive -Path "dist/${{ steps.stage.outputs.stage }}" -DestinationPath "dist/${{ steps.stage.outputs.stage }}.zip"
+
+      - name: Upload archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.stage.outputs.stage }}
+          path: |
+            dist/*.tar.gz
+            dist/*.zip
+          if-no-files-found: error
+
+  release:
+    name: publish release
+    needs: build
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write       # create the Release and upload assets
+      id-token: write       # sign the build provenance attestation
+      attestations: write   # record it against the repository
+
+    steps:
+      - name: Resolve version from tag
+        id: version
+        shell: bash
+        env:
+          RAW_VERSION: ${{ github.ref_name }}
+        run: |
+          v="${RAW_VERSION#v}"
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          case "$v" in *-*) echo "prerelease=true" >> "$GITHUB_OUTPUT" ;;
+                        *)   echo "prerelease=false" >> "$GITHUB_OUTPUT" ;; esac
+
+      - name: Collect archives
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: fux-*
+          merge-multiple: true
+
+      # One file covering every asset, which is what an install script or a Homebrew
+      # formula checks against.
+      - name: Checksums
+        shell: bash
+        run: |
+          cd dist
+          sha256sum fux-* > SHA256SUMS
+          cat SHA256SUMS
+
+      # Lets `gh attestation verify` prove an archive came from this workflow on this
+      # commit, which is the only provenance an unsigned binary can offer.
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: 'dist/fux-*'
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          VERSION: ${{ steps.version.outputs.version }}
+          PRERELEASE: ${{ steps.version.outputs.prerelease }}
+        shell: bash
+        run: |
+          notes=$(mktemp)
+          cat > "$notes" <<'EOF'
+          Download the archive for your platform, unpack it, and put `fux` on your `PATH`.
+
+          | Platform | Asset |
+          | --- | --- |
+          | macOS (Apple Silicon) | `osx-arm64.tar.gz` |
+          | macOS (Intel) | `osx-x64.tar.gz` |
+          | Linux (x86-64) | `linux-x64.tar.gz` |
+          | Linux (ARM64) | `linux-arm64.tar.gz` |
+          | Windows (x86-64) | `win-x64.zip` |
+
+          ```sh
+          tar xzf fux-*-osx-arm64.tar.gz
+          sudo install -m 0755 fux-*/fux /usr/local/bin/fux
+          fux --help
+          ```
+
+          The binaries are unsigned. macOS quarantines anything downloaded through a
+          browser, so if Gatekeeper refuses to launch it, either download with `curl`
+          instead or clear the flag: `xattr -d com.apple.quarantine /usr/local/bin/fux`.
+          Windows SmartScreen will warn for the same reason.
+
+          Verify a download against `SHA256SUMS`, or check its provenance with
+          `gh attestation verify <archive> --repo ${{ github.repository }}`.
+          EOF
+          flags=""
+          [ "$PRERELEASE" = "true" ] && flags="--prerelease"
+          gh release create "$TAG" \
+            --title "fux $VERSION" \
+            --notes-file "$notes" \
+            --generate-notes \
+            $flags \
+            dist/*
+
+      # `brew install marcelinto/tap/fux` is the install path most people actually want for
+      # a terminal tool: it puts fux on PATH, handles upgrades, and — because Homebrew
+      # downloads rather than a browser — never sets the quarantine flag that makes an
+      # unsigned macOS binary refuse to launch.
+      #
+      # The formula is written from the checksums computed above, so it can never disagree
+      # with the assets. Windows is absent by design: Homebrew has no Windows support, and
+      # that platform wants Scoop or WinGet instead.
+      #
+      # Prereleases are skipped. Homebrew versions are numeric, and a tap that tracks
+      # `0.3.0-rc.1` would push a release candidate to everyone running `brew upgrade`.
+      - name: Generate Homebrew formula
+        if: steps.version.outputs.prerelease == 'false'
+        id: formula
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          sha() { awk -v f="fux-$VERSION-$1.tar.gz" '$2==f {print $1}' dist/SHA256SUMS; }
+          for rid in osx-arm64 osx-x64 linux-x64 linux-arm64; do
+            [ -n "$(sha $rid)" ] || { echo "::error::no checksum for $rid"; exit 1; }
+          done
+          base="https://github.com/$REPO/releases/download/$TAG"
+          cat > fux.rb <<EOF
+          class Fux < Formula
+            desc "Cross-platform terminal XML editor"
+            homepage "https://github.com/$REPO"
+            version "$VERSION"
+            license "MIT"
+
+            on_macos do
+              on_arm do
+                url "$base/fux-$VERSION-osx-arm64.tar.gz"
+                sha256 "$(sha osx-arm64)"
+              end
+              on_intel do
+                url "$base/fux-$VERSION-osx-x64.tar.gz"
+                sha256 "$(sha osx-x64)"
+              end
+            end
+
+            on_linux do
+              on_arm do
+                url "$base/fux-$VERSION-linux-arm64.tar.gz"
+                sha256 "$(sha linux-arm64)"
+              end
+              on_intel do
+                url "$base/fux-$VERSION-linux-x64.tar.gz"
+                sha256 "$(sha linux-x64)"
+              end
+            end
+
+            def install
+              bin.install "fux"
+            end
+
+            test do
+              assert_match "fux #{version}", shell_output("#{bin}/fux --version")
+            end
+          end
+          EOF
+          {
+            echo '### Homebrew formula'
+            echo 'Commit this to `Formula/fux.rb` in the tap if it was not pushed automatically.'
+            echo '```ruby'
+            cat fux.rb
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # Opt-in: does nothing until a HOMEBREW_TAP_TOKEN secret with write access to the tap
+      # repository exists. Without it the formula is still in the step summary above, ready
+      # to paste. github.token cannot be used here — it is scoped to this repository only.
+      - name: Push formula to the tap
+        if: steps.version.outputs.prerelease == 'false'
+        env:
+          TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          VERSION: ${{ steps.version.outputs.version }}
+          TAP_REPO: ${{ github.repository_owner }}/homebrew-tap
+        shell: bash
+        run: |
+          if [ -z "$TAP_TOKEN" ]; then
+            echo "HOMEBREW_TAP_TOKEN not set — skipping the tap update, formula is in the summary."
+            exit 0
+          fi
+          git clone --depth 1 "https://x-access-token:$TAP_TOKEN@github.com/$TAP_REPO.git" tap
+          cd tap
+          # A tap with no commits yet advertises no refs at all, so the branch git checks
+          # out is a guess — one that older git resolves from the runner's own
+          # init.defaultBranch. Ask GitHub which branch it actually serves and pin to it,
+          # or the first release quietly lands the formula on a branch `brew` never reads.
+          branch=$(GH_TOKEN="$TAP_TOKEN" gh api "repos/$TAP_REPO" --jq .default_branch 2>/dev/null || true)
+          branch=${branch:-main}
+          git checkout -B "$branch"
+          mkdir -p Formula
+          cp ../fux.rb Formula/fux.rb
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Formula/fux.rb
+          git diff --cached --quiet && { echo "formula already current"; exit 0; }
+          git commit -m "fux $VERSION"
+          git push origin "HEAD:refs/heads/$branch"
