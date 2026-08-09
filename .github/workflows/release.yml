@@ -175,7 +175,9 @@ jobs:
   release:
     name: publish release
     needs: build
-    if: github.event_name == 'push'
+    # Runs for a dispatch too, with only the two mutating steps gated on a tag push. The
+    # dry run used to skip this job wholesale, so the entire publish path was unexercised
+    # until a real tag ran it for the first time — which is exactly when it failed.
     runs-on: ubuntu-latest
     permissions:
       contents: write       # create the Release and upload assets
@@ -183,16 +185,31 @@ jobs:
       attestations: write   # record it against the repository
 
     steps:
-      - name: Resolve version from tag
+      # Same resolution as the build job: on a dispatch github.ref_name is the branch
+      # ("main"), not a version, and using it here would name the archives after a branch
+      # that does not exist and fail the checksum lookup below.
+      - name: Resolve version
         id: version
         shell: bash
         env:
-          RAW_VERSION: ${{ github.ref_name }}
+          RAW_VERSION: ${{ github.event_name == 'push' && github.ref_name || inputs.version }}
         run: |
           v="${RAW_VERSION#v}"
+          echo "$v" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z][0-9A-Za-z.-]*)?$' || {
+            echo "::error::'$v' is not a X.Y.Z or X.Y.Z-prerelease version"; exit 1; }
           echo "version=$v" >> "$GITHUB_OUTPUT"
           case "$v" in *-*) echo "prerelease=true" >> "$GITHUB_OUTPUT" ;;
                         *)   echo "prerelease=false" >> "$GITHUB_OUTPUT" ;; esac
+
+      # Runs on a dispatch as well, so a dry run proves gh can resolve the repository from
+      # this checkout-less job. Read-only, and it is the check that would have caught the
+      # missing GH_REPO before a real tag was spent on it.
+      - name: Verify release tooling can reach the repository
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        shell: bash
+        run: gh release list --limit 1
 
       - name: Collect archives
         uses: actions/download-artifact@v4
@@ -213,13 +230,20 @@ jobs:
       # Lets `gh attestation verify` prove an archive came from this workflow on this
       # commit, which is the only provenance an unsigned binary can offer.
       - name: Attest build provenance
+        if: github.event_name == 'push'
         uses: actions/attest-build-provenance@v2
         with:
           subject-path: 'dist/fux-*'
 
+      # GH_REPO because this job never checks the repository out — it only needs the
+      # archives, which arrive as artifacts. Without it gh falls back to reading the git
+      # remote of the working directory, finds no .git, and dies with "failed to run git"
+      # after the binaries have already been built.
       - name: Create GitHub Release
+        if: github.event_name == 'push'
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
           TAG: ${{ github.ref_name }}
           VERSION: ${{ steps.version.outputs.version }}
           PRERELEASE: ${{ steps.version.outputs.prerelease }}
@@ -271,8 +295,9 @@ jobs:
       #
       # Prereleases are skipped. Homebrew versions are numeric, and a tap that tracks
       # `0.3.0-rc.1` would push a release candidate to everyone running `brew upgrade`.
+      # Always generated, including on a dry run, so the formula can be read in the step
+      # summary before a tag is spent. Only the push to the tap is gated.
       - name: Generate Homebrew formula
-        if: steps.version.outputs.prerelease == 'false'
         id: formula
         env:
           VERSION: ${{ steps.version.outputs.version }}
@@ -335,7 +360,7 @@ jobs:
       # repository exists. Without it the formula is still in the step summary above, ready
       # to paste. github.token cannot be used here — it is scoped to this repository only.
       - name: Push formula to the tap
-        if: steps.version.outputs.prerelease == 'false'
+        if: github.event_name == 'push' && steps.version.outputs.prerelease == 'false'
         env:
           TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
           VERSION: ${{ steps.version.outputs.version }}
