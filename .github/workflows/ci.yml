@@ -51,6 +51,38 @@ jobs:
       - name: Build engine + TUI (Release)
         run: dotnet build src/Fux/Fux.csproj -c Release
 
+      # The contract a downloaded binary is judged by before anything else: asking it what
+      # it is has to answer, and a mistyped option has to say so. Both used to fall through
+      # to the editor, which without a TTY reads as a hang — hence timeout-minutes, so a
+      # regression fails the step instead of parking the job. (GitHub's own step timeout,
+      # not timeout(1): the macOS runners have no such command.)
+      - name: CLI contract smoke (--help, --version, bad flag)
+        timeout-minutes: 5
+        shell: bash
+        run: |
+          out=$(dotnet run --project src/Fux -c Release -- --help < /dev/null)
+          echo "$out"
+          # Anchored to the usage rows themselves. A bare `grep -- --validate` also matches
+          # the prose line below the list, so deleting the row it is meant to guard left the
+          # check green — verified by removing it.
+          echo "$out" | grep -q '^Usage:$'                     || { echo "::error::--help printed no usage"; exit 1; }
+          for row in '<file> ' '--dump <file>' '--validate <file>' '--version' '--help'; do
+            echo "$out" | grep -q "^  fux $row" || { echo "::error::--help omits the '$row' row"; exit 1; }
+          done
+
+          ver=$(dotnet run --project src/Fux -c Release -- --version < /dev/null)
+          echo "$ver"
+          echo "$ver" | grep -qE '^fux [0-9]+\.[0-9]+\.[0-9]+$' \
+            || { echo "::error::--version printed '$ver'"; exit 1; }
+
+          set +e
+          err=$(dotnet run --project src/Fux -c Release -- --nope < /dev/null 2>&1)
+          code=$?
+          set -e
+          echo "$err"
+          [ "$code" -eq 2 ] || { echo "::error::unknown option should exit 2 (got $code)"; exit 1; }
+          echo "$err" | grep -q "unknown option" || { echo "::error::unknown option went unreported"; exit 1; }
+
       # --dump loads the file into the DOM and prints the tree; no TTY needed.
       - name: Headless render smoke (Fux --dump)
         shell: bash
