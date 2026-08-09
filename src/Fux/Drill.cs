@@ -854,10 +854,11 @@ namespace Fux
             // --- 13c. Clipboard. ^X/^C/^V act on the selected node's *value*, which is what
             // makes them do something with the tree focused — a text copy has no caret to act
             // on there. What ^C decides to copy (CopyText) is asserted apart from the OS write,
-            // because CI's Linux runner has neither xclip nor a display: IsSupported is false
-            // there, so an oracle that needed a real clipboard would go untested on two of the
-            // three platforms. The write itself is still asserted on both branches — the one
-            // that copies, and the one that reports it can't.
+            // so the section still says something on a box with no clipboard — a headless one,
+            // or an X11 one with no xclip. No runner here is such a box: ubuntu-latest and
+            // macos-latest both have a working clipboard (measured, on the first CI run this
+            // section ever had), and the drill is skipped on Windows. So the else branch below
+            // is reached by forcing Program.TrySetClipboard to fail, never by a runner.
             var clipNode = file == null ? null : FindValuedNode(Program.Model.Document?.DocumentElement);
             if (clipNode != null)
             {

@@ -572,8 +572,11 @@ namespace Fux
         // that handler inert, leaving a Find field's own ^C/^V intact.
         //
         // The decision each one makes is a separate function from the OS write,
-        // so --drill can assert on the decision without a clipboard: CI's Linux
-        // runner has no xclip and no display, so IsSupported is false there.
+        // so --drill can assert on it without a clipboard at all. That split earns
+        // its keep because the no-clipboard case is real — a headless box, or an
+        // X11 one with no xclip — and no CI runner reproduces it: ubuntu-latest
+        // and macos-latest both turned out to have a working clipboard, and the
+        // drill skips Windows. It is covered by forcing the write to fail instead.
         // --------------------------------------------------------------------
 
         // What ^C should put on the clipboard: the highlight if the user made one in
