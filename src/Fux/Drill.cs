@@ -701,6 +701,68 @@ namespace Fux
                 Check(bak != null && System.IO.File.Exists(bak) && SameBytes(v1, System.IO.File.ReadAllBytes(bak)),
                     "the first backup survives the second save");
 
+                // A backup name is the document's name plus the second the save landed in, so in
+                // a directory anyone can write to — /tmp, a shared build tree — it is guessable
+                // ahead of time. Someone who plants a symlink there must not have the document
+                // written through it. Windows only: CreateSymbolicLink needs a privilege there,
+                // and the drill does not run on Windows anyway (no PTY on the runner).
+                if (!OperatingSystem.IsWindows())
+                {
+                    // A file of its own, untouched by the saves above: their backups already hold
+                    // this second's first few names, and the planted links have to be what the
+                    // save reaches for first or this section quietly tests nothing.
+                    var fresh = System.IO.Path.Combine(scratch, "fux_drill_planted.xml");
+                    System.IO.File.WriteAllBytes(fresh, v1);
+
+                    // The victim is a path that does NOT exist — the dangerous shape, since a
+                    // link to a file that does exist is refused by any copy that declines to
+                    // overwrite. Links for this second and the next two: the save picks the
+                    // second, and a check must not depend on which one it gets.
+                    var victim = System.IO.Path.Combine(scratch, "fux_drill_victim.txt");
+                    var planted = new List<string>();
+                    var stamps = new List<string>();
+                    for (int s = 0; s < 3; s++)
+                    {
+                        var stamp = DateTime.Now.AddSeconds(s).ToString("yyyyMMdd-HHmmss",
+                            System.Globalization.CultureInfo.InvariantCulture);
+                        var link = $"{fresh}.{stamp}.bak";
+                        if (System.IO.File.Exists(link)) continue;
+                        System.IO.File.CreateSymbolicLink(link, victim);
+                        planted.Add(link);
+                        stamps.Add(stamp);
+                    }
+
+                    var err = Program.TrySaveAs(ui, fresh);
+                    Check(!System.IO.File.Exists(victim),
+                        "a symlink planted at the backup name is not written through");
+                    // Stepping over the planted name is the point; refusing to save because
+                    // someone littered the directory is not.
+                    Check(err == null, $"the save works around the planted name (err was '{err}')");
+                    var chosen = System.IO.Path.GetFileName(Program.Model.LastBackup ?? "");
+                    Check(Program.Model.LastBackup != null && !planted.Contains(Program.Model.LastBackup),
+                        "the backup went to a name of its own");
+                    // Guards the check above against going vacuous: if the naming ever changes,
+                    // the links would be planted at names no save would have used, and "not
+                    // written through" would pass by never being tested at all.
+                    Check(stamps.Exists(s => chosen.StartsWith($"fux_drill_planted.xml.{s}", StringComparison.Ordinal)),
+                        $"the planted names were the ones the save reached for (backup was '{chosen}')");
+
+                    foreach (var link in planted) System.IO.File.Delete(link);
+
+                    // A backup of a document its owner keeps to themselves must not be readable
+                    // by anyone the original was not. Writing the copy by hand is what puts this
+                    // at risk: the permission bits have to be carried over deliberately, where
+                    // File.Copy brought them along.
+                    System.IO.File.SetUnixFileMode(fresh, System.IO.UnixFileMode.UserRead | System.IO.UnixFileMode.UserWrite);
+                    Check(Program.TryInsert(ui, Program.Model.Document.DocumentElement,
+                            InsertKind.Element, InsertPos.Child, "fuxbak4") == null, "backup drill: private document edited");
+                    Check(Program.TrySaveAs(ui, fresh) == null, "the private document saves");
+                    var mode = Program.Model.LastBackup == null ? (System.IO.UnixFileMode?)null
+                        : System.IO.File.GetUnixFileMode(Program.Model.LastBackup);
+                    Check(mode == (System.IO.UnixFileMode.UserRead | System.IO.UnixFileMode.UserWrite),
+                        $"the backup of a 0600 document is 0600 (was {mode?.ToString() ?? "no backup"})");
+                }
+
                 // --no-backup: the same edit and save, keeping nothing.
                 Program.Model.Backups = false;
                 Check(Program.TryInsert(ui, Program.Model.Document.DocumentElement,

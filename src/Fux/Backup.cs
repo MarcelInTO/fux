@@ -56,16 +56,45 @@ namespace Fux
                 var candidate = n == 0
                     ? $"{path}.{stamp}.bak"
                     : $"{path}.{stamp}-{n}.bak";
+                // True of a symlink whose target is missing, too, so a name someone else planted
+                // is stepped over rather than followed.
                 if (File.Exists(candidate)) continue;
-                // Copy, never move: the file has to stay put until the new contents replace it,
-                // or an interrupted save would leave nothing at the name the user is editing.
-                // No overwrite flag, so losing a race for the name raises rather than clobbering
-                // the very thing this is protecting.
-                File.Copy(path, candidate);
+                CopyTo(path, candidate);
                 return candidate;
             }
 
             throw new IOException($"cannot back up '{Path.GetFileName(path)}': too many backups from this second");
+        }
+
+        /// <summary>
+        /// The copy itself: read the file, write a new one, leaving the original in place until
+        /// the save replaces it — never a move, or an interrupted save would leave nothing at
+        /// the name the user is editing.
+        /// </summary>
+        private static void CopyTo(string path, string candidate)
+        {
+            // Not File.Copy, which follows a symlink at the destination when the link's target
+            // does not exist yet (measured on .NET 10; it refuses one whose target does). The
+            // backup name is derived from the document's, so in a directory someone else can
+            // write to it is predictable a second at a time — enough to plant a link and have
+            // the document written wherever it points. The Exists check above already steps over
+            // a planted name; this closes the window between that check and the write.
+            //
+            // FileMode.CreateNew is O_CREAT|O_EXCL: it refuses any symlink at the path, dangling
+            // or not, in the same syscall that creates the file. The permission bits then have
+            // to be carried over by hand — File.Copy did that for us, and a document its owner
+            // keeps to themselves must not acquire a copy the rest of the machine can read.
+            var options = new FileStreamOptions
+            {
+                Mode = FileMode.CreateNew,
+                Access = FileAccess.Write,
+                Share = FileShare.None,
+            };
+            if (!OperatingSystem.IsWindows()) options.UnixCreateMode = File.GetUnixFileMode(path);
+
+            using var from = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+            using var to = new FileStream(candidate, options);
+            from.CopyTo(to); // streamed, so a large document is not held in memory a second time
         }
     }
 }
