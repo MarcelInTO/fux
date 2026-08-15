@@ -80,7 +80,7 @@ jobs:
           # the prose line below the list, so deleting the row it is meant to guard left the
           # check green — verified by removing it.
           echo "$out" | grep -q '^Usage:$'                     || { echo "::error::--help printed no usage"; exit 1; }
-          for row in '<file> ' '--dump <file>' '--validate <file>' '--version' '--help'; do
+          for row in '<file> ' '--no-backup <file>' '--dump <file>' '--validate <file>' '--version' '--help'; do
             echo "$out" | grep -q "^  fux $row" || { echo "::error::--help omits the '$row' row"; exit 1; }
           done
 

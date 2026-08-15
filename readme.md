@@ -55,11 +55,17 @@ pass `RID=...`. `make help` lists everything.
 
 ```sh
 fux document.xml           # open the editor
+fux --no-backup doc.xml    # edit without keeping backups
 fux --dump document.xml    # headless structure dump
 fux --validate doc.xml     # headless XSD validation (exit 1 if there are errors)
 fux --help                 # usage summary
 fux --version              # version only
 ```
+
+Before overwriting a file, fux copies its previous contents next to it as
+`<name>.<YYYYMMDD-HHMMSS>.bak` — `doc.xml` becomes `doc.xml.20260815-142530.bak`.
+A save that changes nothing writes no backup, and old ones are left for you to
+delete; `--no-backup` turns the whole thing off.
 
 `.htm`, `.html`, `.json` and `.csv` files are converted to XML on open, following
 XML Notepad's conversion conventions. An import never overwrites its own source:
