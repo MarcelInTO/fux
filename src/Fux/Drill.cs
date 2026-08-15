@@ -646,6 +646,75 @@ namespace Fux
                 Check(!Program.Model.Dirty, "and comes back clean");
             }
 
+            // --- 12a. Backups. A save destroys the version that was on disk, and the undo stack
+            // reaches back no further than the last open — so unless a copy is taken first, what
+            // the file held a moment ago is gone. Asserted against the directory rather than
+            // against the model, because what a user can recover afterwards is the whole point.
+            {
+                var scratch = System.IO.Path.GetDirectoryName(file);
+                var target = System.IO.Path.Combine(scratch, "fux_drill_backup.xml");
+                var pattern = System.IO.Path.GetFileName(target) + ".*.bak";
+                var v1 = System.Text.Encoding.UTF8.GetBytes("<?xml version=\"1.0\"?>\n<fuxv1/>\n");
+                System.IO.File.WriteAllBytes(target, v1);
+
+                // Save As onto an existing file: what is in hand is not what is on disk, so
+                // what is on disk has to end up somewhere.
+                Check(Program.TrySaveAs(ui, target) == null, "save over an existing file accepted");
+                var bak = Program.Model.LastBackup;
+                if (Check(bak != null, "overwriting a file leaves a backup"))
+                {
+                    // The oracle is the *content*, not the existence of a .bak: a copy taken
+                    // after the write, or of the wrong file, satisfies "a backup appeared" while
+                    // preserving nothing at all.
+                    Check(SameBytes(v1, System.IO.File.ReadAllBytes(bak)),
+                        "the backup holds the displaced contents byte for byte");
+                    Check(System.IO.Path.GetDirectoryName(bak) == scratch,
+                        "the backup sits beside the file it came from");
+                    // Spelled out rather than rebuilt from Backup's own format string, which
+                    // would only compare the code against itself.
+                    var name = System.IO.Path.GetFileName(bak);
+                    Check(name.StartsWith("fux_drill_backup.xml.", StringComparison.Ordinal)
+                          && name.EndsWith(".bak", StringComparison.Ordinal)
+                          && IsStamp(name.Substring("fux_drill_backup.xml.".Length, name.Length - "fux_drill_backup.xml.".Length - ".bak".Length)),
+                        $"the backup is named for the file and timestamped (got '{name}')");
+                }
+
+                // A save that rewrites the same bytes has displaced nothing. Without this, the
+                // idle ^S of anyone who has ever lost work fills the directory with copies.
+                int kept = System.IO.Directory.GetFiles(scratch, pattern).Length;
+                Check(Program.TrySaveAs(ui, target) == null, "the unchanged document saves again");
+                Check(Program.Model.LastBackup == null, "a save that changes nothing keeps nothing");
+                Check(System.IO.Directory.GetFiles(scratch, pattern).Length == kept,
+                    "...and leaves no second copy behind");
+
+                // A second overwrite inside the same second must not reuse the first backup's
+                // name: recording the newer version by destroying the older one is the one
+                // outcome worse than not backing up at all.
+                byte[] v2 = System.IO.File.ReadAllBytes(target);
+                Check(Program.TryInsert(ui, Program.Model.Document.DocumentElement,
+                        InsertKind.Element, InsertPos.Child, "fuxbak2") == null, "backup drill: document edited");
+                Check(Program.TrySaveAs(ui, target) == null, "the edited document saves over itself");
+                var bak2 = Program.Model.LastBackup;
+                if (Check(bak2 != null && bak2 != bak, "a second overwrite makes a second backup"))
+                    Check(SameBytes(v2, System.IO.File.ReadAllBytes(bak2)),
+                        "the second backup holds the version it displaced");
+                Check(bak != null && System.IO.File.Exists(bak) && SameBytes(v1, System.IO.File.ReadAllBytes(bak)),
+                    "the first backup survives the second save");
+
+                // --no-backup: the same edit and save, keeping nothing.
+                Program.Model.Backups = false;
+                Check(Program.TryInsert(ui, Program.Model.Document.DocumentElement,
+                        InsertKind.Element, InsertPos.Child, "fuxbak3") == null, "backup drill: document edited again");
+                kept = System.IO.Directory.GetFiles(scratch, pattern).Length;
+                Check(Program.TrySaveAs(ui, target) == null, "the document saves with backups off");
+                Check(Program.Model.LastBackup == null, "--no-backup keeps nothing");
+                Check(System.IO.Directory.GetFiles(scratch, pattern).Length == kept,
+                    "--no-backup writes no backup file");
+                Program.Model.Backups = true;
+
+                Check(Program.TryOpen(ui, file) == null, "the original document reopens after the backup drill");
+            }
+
             // --- 12b. Mixed content. An element whose children are only text folds that text
             // into its own value and shows no child row; a *container* has no value to fold
             // into, so its text children get rows of their own. Before that second half existed,
@@ -1109,6 +1178,16 @@ namespace Fux
             foreach (XmlNode c in parent.ChildNodes)
                 if (Program.IsShown(c)) last = c;
             return last;
+        }
+
+        // "yyyyMMdd-HHmmss", checked by shape. Enough to catch a stamp that lost its date half
+        // or arrived as a tick count, without pinning the drill to the clock it runs on.
+        private static bool IsStamp(string s)
+        {
+            if (s.Length != 15 || s[8] != '-') return false;
+            for (int i = 0; i < s.Length; i++)
+                if (i != 8 && (s[i] < '0' || s[i] > '9')) return false;
+            return true;
         }
 
         private static bool SameBytes(byte[] a, byte[] b)

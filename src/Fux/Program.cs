@@ -65,6 +65,13 @@ namespace Fux
             {
                 var dir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "fux-drill");
                 System.IO.Directory.CreateDirectory(dir);
+                // The drill saves many times, and every save that changes a file leaves a
+                // backup — so this directory fills with copies from previous runs. Clear them,
+                // or the first thing a contributor sees when they open it to inspect a failure
+                // is a hundred stale files. Only the leftovers: this run's are still made, and
+                // section 12a still asserts on them.
+                foreach (var stale in System.IO.Directory.GetFiles(dir, "*.bak"))
+                    System.IO.File.Delete(stale);
                 foreach (var xsd in System.IO.Directory.GetFiles(System.IO.Path.GetDirectoryName(file), "*.xsd"))
                     System.IO.File.Copy(xsd, System.IO.Path.Combine(dir, System.IO.Path.GetFileName(xsd)), true);
                 // The underscore in the copy's name is deliberate: the tree pane's title is the
@@ -90,6 +97,10 @@ namespace Fux
             // still reads a container as having no scalar value.
             settings["PreserveWhitespace"] = true;
             _model = new FuxCache(site, new SchemaCache(site), new DelayedActions(a => a()));
+            // Saving keeps the previous version of the file unless told not to. Opt-out rather
+            // than opt-in: the one person who never gets the backup is the one who did not know
+            // to ask for it, and that is the person who needs it. See Backup.
+            _model.Backups = Array.IndexOf(args, "--no-backup") < 0;
 
             if (file != null)
             {
@@ -697,7 +708,7 @@ namespace Fux
         // it is the interactive self-test, useful to a contributor and noise to everyone
         // else — but it belongs here, or the argument check would reject the thing CI runs.
         private static readonly string[] KnownFlags =
-            { "--dump", "--validate", "--drill", "--help", "-h", "--version" };
+            { "--dump", "--validate", "--drill", "--no-backup", "--help", "-h", "--version" };
 
         // What `fux --help` prints. Kept to plain stdout on purpose: the first thing anyone
         // does with an unfamiliar binary is ask it what it is, and that answer has to arrive
@@ -710,12 +721,17 @@ namespace Fux
                 + "\n"
                 + "Usage:\n"
                 + "  fux <file>              open the editor on a document\n"
+                + "  fux --no-backup <file>  edit without keeping backups (see below)\n"
                 + "  fux --dump <file>       print the document structure and exit\n"
                 + "  fux --validate <file>   report XSD validation errors and exit\n"
                 + "  fux --version           print the version and exit\n"
                 + "  fux --help              print this message and exit\n"
                 + "\n"
                 + "--validate exits 1 if the document has validation errors, else 0.\n"
+                + "\n"
+                + "Before overwriting a file, fux copies its previous contents next to it as\n"
+                + "<name>.<YYYYMMDD-HHMMSS>.bak. A save that changes nothing writes no backup,\n"
+                + "and nothing removes old ones for you.\n"
                 + "\n"
                 + ".htm, .html, .json and .csv files are converted to XML on open. Saving an\n"
                 + "imported document writes XML to a sibling file rather than overwriting it.\n"

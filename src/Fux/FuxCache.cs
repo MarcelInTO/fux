@@ -30,6 +30,18 @@ namespace Fux
         /// </summary>
         public bool PrettyPrint { get; set; }
 
+        /// <summary>
+        /// Whether writing a document keeps the previous contents of the file it lands on.
+        /// On unless <c>--no-backup</c> says otherwise. See <see cref="Backup"/>.
+        /// </summary>
+        public bool Backups { get; set; } = true;
+
+        /// <summary>
+        /// Where the last write filed the contents it displaced, or null if it displaced none —
+        /// the file was new, or the write left it unchanged.
+        /// </summary>
+        public string LastBackup { get; private set; }
+
         public FuxCache(IServiceProvider site, SchemaCache schemaCache, DelayedActions handler)
             : base(site, schemaCache, handler)
         {
@@ -47,6 +59,17 @@ namespace Fux
             // previous contents on disk intact — the same guarantee the base implementation
             // gets from writing through a MemoryStream.
             byte[] bytes = XmlFormatWriter.WriteToBytes(Document, Format ?? XmlFormat.Default, indent);
+
+            // Keep whatever is already at this name before replacing it. This is the one place
+            // fux overwrites a document, so it is the one place the rule has to hold — Save,
+            // Save As and SaveCopy all arrive here, and so will anything added later.
+            //
+            // Ahead of the write, necessarily: afterwards the previous contents are gone. A
+            // backup that cannot be written therefore fails the save, with the file on disk
+            // still intact — saving anyway would quietly drop the protection the user asked
+            // for at the only moment it was going to be used.
+            LastBackup = Backups ? Backup.Rotate(filename, bytes) : null;
+
             File.WriteAllBytes(filename, bytes);
         }
     }
