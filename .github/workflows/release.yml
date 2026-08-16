@@ -148,7 +148,9 @@ jobs:
           else
             script -qec "$bin --drill sandbox/testdata/emp-invalid.xml" /dev/null > drill.out 2>&1 || true
           fi
-          sed 's/\x1b\[[0-9;?]*[a-zA-Z]//g' drill.out | grep -aE '^\s*\[(ok|FAIL)\]|DRILL:' || true
+          # Unanchored: the PTY merges the report with the TUI's repaints, so a check that
+          # follows one starts mid-line and an '^'-anchored filter drops it. See the Makefile.
+          sed 's/\x1b\[[0-9;?]*[a-zA-Z]//g' drill.out | grep -aoE '\[(ok|FAIL)\][^[:cntrl:]]*|DRILL: [^[:cntrl:]]*' || true
           grep -aq "DRILL: PASS" drill.out || { echo "::error::staged binary failed its own drill"; exit 1; }
           grep -aqF "build version (${{ steps.version.outputs.core }})" drill.out \
             || { echo "::error::About box does not report ${{ steps.version.outputs.core }}"; exit 1; }
