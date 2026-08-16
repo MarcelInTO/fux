@@ -843,11 +843,20 @@ namespace Fux
 
         // ^N inserts a new node relative to the selection. The dialog collects kind,
         // position and name; TryInsert (headless-testable) is the commit path.
-        private static void StartInsert(Ui ui)
+        //
+        // It also offers the user's named blocks (Snippets) as a third radio group, when there
+        // are any. The config is re-read on every open, so editing snippets.xml in fux and
+        // reopening ^N picks the change up.
+        internal static void StartInsert(Ui ui)
         {
             if (ui == null || ui.Editing) return;
             var n = ui.Tree.SelectedObject;
             if (n == null) return;
+
+            var snippets = Snippets.Load();
+            // Nothing to say and nothing to show: someone who has never written a config gets
+            // exactly the dialog fux has always had, at exactly the size it has always been.
+            bool blocks = !snippets.Missing && (snippets.Blocks.Count > 0 || snippets.Problem != null);
 
             var kindSel = new OptionSelector
             {
@@ -862,13 +871,64 @@ namespace Fux
                 Value = 0,
             };
             var field = new TextField { X = 1, Y = 1, Width = Dim.Fill(1) };
+            // Ids so --drill can reach these from inside the modal, where it has no reference
+            // to them: the enable/disable rule is a property of the dialog, not of a Try*
+            // function, so there is nothing else to assert it on.
+            field.Id = NameFieldId;
+            kindSel.Id = KindSelId;
+
+            OptionSelector blockSel = null;
+            View blockHost = null;
+            int visibleRows = 0;
             var d = new Dialog
             {
                 Title = $"Insert at {GetLabel(n)}",
-                Width = 50, Height = 12,
+                Width = blocks ? 68 : 50,
+                Height = 12,
             };
             d.HotKeySpecifier = NoHotKey; // the title carries a node name — see NoHotKey
             d.Add(new Label { X = 1, Y = 0, Text = "Name (element/attribute/PI):" }, field, kindSel, posSel);
+
+            if (blocks)
+            {
+                // "(none)" first and selected, so the dialog behaves exactly as it always has
+                // until the user picks something else.
+                var labels = new List<string> { NoBlock };
+                foreach (var b in snippets.Blocks) labels.Add(b.Name);
+
+                int rows = labels.Count;
+                // Rows 3..8 of a 12-row dialog. More blocks than that scroll rather than grow:
+                // the dialog has to fit a terminal whose height it cannot assume, and a config
+                // is user-written, so its length is not bounded by anything fux controls.
+                visibleRows = Math.Min(rows, 6);
+
+                blockSel = new OptionSelector { X = 0, Y = 0, Labels = labels, Value = 0, Id = BlockSelId };
+                // Each label becomes a CheckBox, and a CheckBox reads '_' as a hotkey marker —
+                // a block named foo_bar would draw as "foobar" with b stolen as an accelerator.
+                // Block names are the user's text, so they are shown verbatim. See NoHotKey.
+                blockSel.HotKeySpecifier = NoHotKey;
+
+                blockHost = new View { X = 40, Y = 3, Width = Dim.Fill(1), Height = visibleRows };
+                blockHost.Add(blockSel);
+                blockHost.SetContentSize(new System.Drawing.Size(26, rows));
+
+                d.Add(new Label { X = 40, Y = 2, Text = "Block:" }, blockHost);
+
+                // A chosen block supplies the name, the kind and the attributes, so the two
+                // controls it overrides are disabled rather than left looking live — a field
+                // that is being ignored is worse than one that is visibly out of play.
+                blockSel.ValueChanged += (s, e) =>
+                {
+                    bool none = (blockSel.Value ?? 0) == 0;
+                    field.Enabled = none;
+                    kindSel.Enabled = none;
+                    ScrollBlockIntoView(blockHost, blockSel.Value ?? 0, visibleRows);
+                };
+
+                if (snippets.Problem != null)
+                    d.Add(new Label { X = 1, Y = 9, Width = Dim.Fill(1), Text = snippets.Problem });
+            }
+
             d.AddButton(new Button { Text = "Cancel" }); // Result 0
             d.AddButton(new Button { Text = "OK" });     // Result 1; last added = default (Enter)
             field.SetFocus();
@@ -877,12 +937,61 @@ namespace Fux
             var kind = (InsertKind)(kindSel.Value ?? 0);
             var pos = (InsertPos)(posSel.Value ?? 0);
             var name = field.Text;
+            int chosen = blockSel == null ? 0 : blockSel.Value ?? 0;
             d.Dispose();
             if (!ok) return;
 
-            var err = TryInsert(ui, n, kind, pos, name);
+            // Index 0 is "(none)"; the rest index into the blocks in file order.
+            var err = chosen > 0 && chosen <= snippets.Blocks.Count
+                ? TryInsertBlock(ui, n, pos, snippets.Blocks[chosen - 1])
+                : TryInsert(ui, n, kind, pos, name);
             if (err != null)
                 ModalQuery(ui, "Insert failed", err, "OK");
+        }
+
+        // The first row of the block group: no block, dialog behaves as it always has.
+        internal const string NoBlock = "(none)";
+
+        // Identifiers for the three Insert-dialog controls the block group interacts with.
+        internal const string NameFieldId = "fux-insert-name";
+        internal const string KindSelId = "fux-insert-kind";
+        internal const string BlockSelId = "fux-insert-block";
+
+        // Keep the selected block row inside the host's viewport. The group is a plain
+        // OptionSelector — it lays out one CheckBox per label and binds Up/Down to move between
+        // them, with no scrolling of its own (2.4.17) — so a config longer than the visible
+        // rows would put its tail out of reach. Nothing about a user-written config bounds its
+        // length, so this is arithmetic rather than an assumption.
+        internal static int BlockScrollTop(int selected, int visible, int top)
+        {
+            if (selected < top) return selected;
+            if (selected >= top + visible) return selected - visible + 1;
+            return top;
+        }
+
+        private static void ScrollBlockIntoView(View host, int selected, int visible)
+        {
+            var vp = host.Viewport;
+            int top = BlockScrollTop(selected, visible, vp.Y);
+            if (top != vp.Y) host.Viewport = vp with { Y = top };
+        }
+
+        // Push a named-block insert through the undo stack. Separate from TryInsert because a
+        // block carries its own name, kind and attributes — there is nothing to type. Returns
+        // null on success, else the reason.
+        internal static string TryInsertBlock(Ui ui, XmlNode anchor, InsertPos pos, Block block)
+        {
+            InsertNewNode cmd;
+            try
+            {
+                cmd = new InsertNewNode(anchor, pos, block?.Template, _model.Format.IndentChars);
+            }
+            catch (Exception ex) when (ex is XmlException || ex is ArgumentException)
+            {
+                return ex.Message;
+            }
+            ui.Undo.Push(cmd);
+            return null;
         }
 
         // Push an insert through the undo stack. Returns null on success, else the reason.

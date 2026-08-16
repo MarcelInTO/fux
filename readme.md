@@ -114,11 +114,51 @@ clipboard. To make a terminal selection instead (to grab part of the tree, say),
   they went in, rather than being re-indented wholesale.
 - **Find** by text, regular expression or XPath.
 - **Import** from HTML, JSON and CSV.
+- **Named blocks** you define once and insert from the `^N` dialog — see
+  [Named blocks](#named-blocks).
 - **Full undo/redo** across every edit, including position-exact delete undo.
 - **Solarized light/dark** theming, switchable at runtime.
 
 Not included, by design: the HTML and XSLT preview panes, which need a browser
 control that has no place in a terminal.
+
+## Named blocks
+
+Structures you type often can be named once in a config file and inserted from the
+`^N` dialog, where they appear as a third group of radio buttons alongside Kind and
+Position. Pick one and it supplies the element, its attributes and everything under
+it, as a single undoable insert.
+
+The file is `~/.config/fux/snippets.xml` (`$XDG_CONFIG_HOME/fux/snippets.xml` if that
+is set; `%APPDATA%\fux\snippets.xml` on Windows):
+
+```xml
+<snippets>
+  <snippet name="Footnote">
+    <block kind="footnote"/>
+  </snippet>
+  <snippet name="Sidebar">
+    <sidebar>
+      <title/>
+      <body/>
+    </sidebar>
+  </snippet>
+</snippets>
+```
+
+- Each `<snippet>` needs a `name` — that is the label in the dialog — and holds
+  **exactly one element**, which may nest as deeply as you like and carry attributes
+  and text. The indentation around it in the config is ignored; a block is re-indented
+  to wherever it lands.
+- Blocks appear in the order the file lists them.
+- The file is re-read every time the dialog opens, so you can edit it in fux and see
+  the change on the next `^N`.
+- A prefix a block uses must be declared in the config, on `<snippets>` or on the
+  block itself; the declaration travels with the block.
+- A snippet that cannot load is skipped and reported under the group, and the rest of
+  the file still loads. A config that will not parse at all never stops fux opening a
+  document.
+- With no config file, the dialog is exactly what it has always been — no extra group.
 
 ## Development
 
