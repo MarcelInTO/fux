@@ -1097,7 +1097,93 @@ namespace Fux
                 Check(widest <= 60, $"About fits a narrow terminal (widest line {widest} <= 60)");
             }
 
-            // --- 15. F9 focuses the menu bar; ^Q requests stop.
+            // --- 14a. Esc never quits, and no exit gets past the unsaved-changes gate.
+            // One section because they are one bug: v2 binds Esc to Command.Quit at the
+            // application scope, which stopped the top runnable directly — it neither asked
+            // about unsaved work nor could be asked. Two Escs to back out of an edit (the
+            // first cancels it, the second lands on the tree) threw the document away.
+            // Ordered before §15 because that one requests a stop and never takes it back.
+            {
+                Check(!ui.Top.StopRequested, "esc drill: nothing has requested a stop yet");
+                // MenuIsOpen's disjunction is what lets Esc through to the menu. If a
+                // popover were always reported active, it would let Esc through always and
+                // the no-quit rule would be dead code that still reads as if it worked.
+                Check(app.Popovers.GetActivePopover() == null,
+                    "no popover is active while the menu is closed");
+
+                // Give the key something to destroy: an unsaved edit. Without this the
+                // section would prove only that Esc does nothing to a document that had
+                // nothing to lose.
+                ui.Tree.SetFocus();
+                Check(Program.TryInsert(ui, Program.Model.Document.DocumentElement,
+                        InsertKind.Element, InsertPos.Child, "fuxesc") == null, "esc drill: document edited");
+                Check(Program.Model.Dirty, "esc drill: there are unsaved changes to lose");
+
+                app.Keyboard.RaiseKeyDownEvent(Key.Esc);
+                Check(!ui.Top.StopRequested, "Esc does not request a stop");
+                Check(Program.Model.Dirty, "...and the unsaved edit is still there");
+                // Not just "the app is still up": say which key does quit, where the user
+                // is already looking. (A bare "did Esc get consumed?" proves nothing — the
+                // app-scope quit binding consumes it too, and that is the bug.)
+                Check(ui.ValueView.Title.Contains("Esc does not quit"),
+                    $"Esc says what does quit instead (title was '{ui.ValueView.Title}')");
+
+                // The one Esc fux must not eat: a menu opened by accident is dismissed with
+                // it, and the MenuBar's own binding — not the app-scope one — is what does
+                // that. This is the check that keeps the fix from being a blanket swallow.
+                app.Keyboard.RaiseKeyDownEvent(Key.F9);
+                app.RaiseIteration(); // popover show is processed by the main loop
+                app.LayoutAndDraw(true);
+                if (Check(Program.MenuIsOpen(ui), "esc drill: the menu is open"))
+                {
+                    app.Keyboard.RaiseKeyDownEvent(Key.Esc);
+                    app.RaiseIteration();
+                    app.LayoutAndDraw(true);
+                    Check(!Program.MenuIsOpen(ui), "Esc still closes the menu");
+                    Check(!ui.Top.StopRequested, "...and closing it does not request a stop either");
+                }
+
+                // And the key that does quit has to ask first, or the Esc rule above would
+                // only be moving the same loss one keystroke away. Driven with the real ^Q
+                // through the real prompt, which is the whole point: a check on
+                // ConfirmDiscard alone would pass while nothing called it.
+                //
+                // The prompt is a MessageBox, whose nested Run would normally block the key
+                // injector this harness depends on — but that nested loop is a real main
+                // loop, so a timeout armed beforehand fires inside it and answers. Esc on
+                // the prompt is Cancel (ModalQuery returns null, ConfirmDiscard reads that
+                // as choice 2), which is the answer under test.
+                int escs = 0, depthWhilePrompting = -1;
+                app.AddTimeout(TimeSpan.FromMilliseconds(100), () =>
+                {
+                    escs++;
+                    // ModalDepth is raised by nothing but ModalQuery, so reading it from
+                    // inside the nested loop is what proves a *prompt* stopped the quit,
+                    // rather than ^Q having quietly done nothing at all.
+                    if (depthWhilePrompting < 0) depthWhilePrompting = ui.ModalDepth;
+                    app.Keyboard.RaiseKeyDownEvent(Key.Esc);
+                    // Escape hatch, so a prompt that will not take Esc fails the run instead
+                    // of hanging it. Never ui.Top — that is the session the drill is in.
+                    if (escs > 20 && !ReferenceEquals(app.TopRunnable, ui.Top))
+                        app.RequestStop(app.TopRunnable);
+                    return escs <= 30;
+                });
+                app.Keyboard.RaiseKeyDownEvent(Key.Q.WithCtrl);
+                Check(depthWhilePrompting == 1,
+                    $"^Q on unsaved changes prompts (modal depth while quitting was {depthWhilePrompting})");
+                Check(escs == 1, $"the prompt closed on the first Esc (took {escs})");
+                Check(!ui.Top.StopRequested, "a cancelled prompt refuses the quit");
+                Check(Program.Model.Dirty, "...and leaves the unsaved edit alone");
+
+                // The other half: with nothing to lose there is nothing to ask about, so ^Q
+                // on a saved document has to stay one keystroke. §15 quits for real.
+                Check(Program.TryOpen(ui, file) == null, "esc drill: the document reopens clean");
+                Check(!Program.Model.Dirty, "esc drill: nothing left to lose");
+            }
+
+            // --- 15. F9 focuses the menu bar; ^Q requests stop. The document is clean by
+            // now (§14a reopened it), so ^Q must not prompt — and with no timeout armed to
+            // answer one, a prompt here would hang the run rather than quietly pass.
             bool f9Handled = app.Keyboard.RaiseKeyDownEvent(Key.F9);
             app.RaiseIteration(); // popover show is processed by the main loop
             app.LayoutAndDraw(true);
