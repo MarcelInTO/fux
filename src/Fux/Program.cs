@@ -484,6 +484,24 @@ namespace Fux
                 else if (!ui.Editing && e.KeyCode == Key.F3.WithShift.KeyCode) { FindAgain(ui, true); e.Handled = true; }
                 else if (!ui.Editing && e.KeyCode == Key.F3.KeyCode) { FindAgain(ui, false); e.Handled = true; }
                 else if (e.KeyCode == Key.F5.KeyCode) { ToggleTheme(ui); e.Handled = true; }
+                // Esc must never take fux down. v2 binds Esc to Command.Quit at the
+                // *application* scope, which runs last — after the focused view and any
+                // popover have declined the key — so a stray Esc on the tree stopped the
+                // top runnable, which is the editor itself. Two Escs out of an edit did it
+                // every time: the first cancelled the edit (the value pane's own handler,
+                // below), the second quit and took the unsaved document with it.
+                //
+                // The binding cannot simply be removed. Dialog and MessageBox carry no Esc
+                // binding of their own (checked against 2.4.17, not assumed) and close
+                // through that same app-scope Quit — unbinding it would strand every modal
+                // fux opens. So the key is swallowed here instead, where the two things
+                // that legitimately want it are still visible to us and can be left alone:
+                // a modal (the early return above) and an open menu.
+                else if (!ui.Editing && e.KeyCode == Key.Esc.KeyCode && !MenuIsOpen(ui))
+                {
+                    SetValueStatus(ui, "Esc does not quit — ^Q does");
+                    e.Handled = true;
+                }
             };
 
             var status = new StatusBar(new Shortcut[]
@@ -1017,6 +1035,16 @@ namespace Fux
         private static void SetFindStatus(Ui ui, string text)
             => SetValueStatus(ui, string.IsNullOrEmpty(text) ? "" : $"find {text}");
 
+        // True while the menu bar is showing, in any of the ways v2 reports it. Esc belongs
+        // to the menu then — it is how a menu opened by accident is dismissed — so the
+        // no-quit rule above steps aside. Deliberately a disjunction rather than the one
+        // "correct" flag: which of these is set depends on whether the popover has been
+        // through a main-loop iteration yet, and being wrong in the cautious direction
+        // costs an Esc that quietly does nothing instead of one that cannot close a menu.
+        internal static bool MenuIsOpen(Ui ui)
+            => ui?.Menu != null
+               && (ui.Menu.Active || ui.Menu.IsOpen() || ui.App?.Popovers?.GetActivePopover() != null);
+
         // Ctrl+Shift+Arrow nudges the selected node: up/down reorder it among its siblings,
         // left/right change its level. Refusals are quiet (see TryNudge) — running into the
         // edge of a document should feel like running into the end of a list.
@@ -1226,6 +1254,16 @@ namespace Fux
             return choice == 1;                                      // Discard; anything else cancels
         }
 
+        // The only way out of fux, and it asks first. Every key and menu item that quits
+        // comes through here, which is why Esc must not reach the framework's own
+        // Esc-stops-the-top-runnable binding (see the Esc note in BuildUi) — that binding
+        // tore the session down without passing this way, and unsaved work went with it.
+        //
+        // The tempting-looking alternative — override Runnable.OnIsRunningChanging and
+        // prompt there, which is what Terminal.Gui's own documentation suggests, so that no
+        // exit could ever skip the prompt — does not work in 2.4.17 and was tried: that
+        // event is raised from inside ApplicationImpl.End, by which point the screen is
+        // being torn down, and the message box dies laying itself out on a negative width.
         private static void RequestQuit(Ui ui)
         {
             if (ui == null) return;

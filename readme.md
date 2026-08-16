@@ -89,7 +89,11 @@ file.
 | `^O` | open |
 | `^S` | save |
 | `F5` | toggle light / dark theme |
-| `^Q` | quit |
+| `^Q` | quit (asks first if the document has unsaved changes) |
+
+`Esc` only ever backs out of something — a live edit, a dialog, an open menu. It
+never quits, so the second `Esc` on the way out of an edit lands on nothing rather
+than on the door. Quitting is `^Q`, and with unsaved changes it asks before it goes.
 
 Save As lives in the File menu rather than on a chord: `Ctrl+Shift+S` is
 indistinguishable from `Ctrl+S` in legacy terminal encoding, and an advertised
