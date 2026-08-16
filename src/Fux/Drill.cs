@@ -49,6 +49,20 @@ namespace Fux
             Check(screen.Contains("Validation:") || screen.Contains("(no file loaded)"), "validation summary renders");
             Check(screen.Contains("┌") && screen.Contains("│") && screen.Contains("┘"), "pane borders render");
 
+            // The terminal window's own name. Only the composition is asserted: the write is an
+            // escape sequence straight to stdout, which the driver's output buffer never sees,
+            // and the drill deliberately does not claim the title (see TerminalTitle). The file
+            // name leads, the dirty marker matches the pane's, and a control character in a name
+            // never reaches the terminal — that last one is the security-shaped case, since an
+            // ESC would end the OSC string and run the rest of the name as escape sequences.
+            Check(TerminalTitle.Compose("/tmp/book.frxml", false) == "book.frxml — fux",
+                "window title names the document, then fux");
+            Check(TerminalTitle.Compose("/tmp/book.frxml", true) == "book.frxml * — fux",
+                "window title carries the dirty marker");
+            Check(TerminalTitle.Compose(null, false) == "fux", "window title with no document is just fux");
+            Check(TerminalTitle.Compose("/tmp/o\u001b[2Jd.xml", false) == "o[2Jd.xml — fux",
+                "control characters are stripped out of the window title");
+
             // --- 1b. A save the user did not ask to reformat must not reformat anything. This
             // has to happen HERE, before any other section saves over the scratch copy: compared
             // against a file fux has already written, the check would pass no matter how badly
@@ -366,6 +380,46 @@ namespace Fux
                     Check(victim.OwnerElement == null, "attribute is detached");
                     app.Keyboard.RaiseKeyDownEvent(Key.Z.WithCtrl);
                     Check(ReferenceEquals(root9.Attributes[vpos], victim), "undo restores the attribute in place");
+                }
+
+                // A delete has to leave the TREE, not just the DOM. Every check above is on the
+                // document, and the document was never the half that was wrong: a deleted row
+                // stayed on screen, still selectable and still editable through F2, while find —
+                // which walks the DOM — could not see it. Edits typed into that row went to a
+                // detached node and were dropped by the next save.
+                //
+                // The container has to be something other than the document element, which is
+                // why this does not reuse root9 above. RefreshTreeFor rebuilds the *parent* of
+                // the node it is handed, and a delete hands it the container; when that container
+                // is the document element its parent is the XmlDocument, so the refresh falls
+                // through to a full tree rebuild and papers over the bug. One level down, the
+                // rebuild lands on the grandparent, Branch.Refresh never touches descendants, and
+                // the row survives. Names are unique to the drill, so a count over the screen is
+                // still a count of exactly this row.
+                if (firstChild != null)
+                {
+                    Check(Program.TryInsert(ui, firstChild, InsertKind.Attribute, InsertPos.Child, "fuxghostattr") == null,
+                        "nested attribute insert accepted");
+                    app.LayoutAndDraw(true);
+                    Check(CountOnScreen(app, "@fuxghostattr") == 1, "nested attribute is drawn");
+                    Check(Program.TryDelete(ui, firstChild.GetAttributeNode("fuxghostattr")) == null,
+                        "nested attribute delete accepted");
+                    app.LayoutAndDraw(true);
+                    Check(CountOnScreen(app, "@fuxghostattr") == 0, "a deleted attribute leaves the tree");
+                    app.Keyboard.RaiseKeyDownEvent(Key.Z.WithCtrl); // undo the delete
+                    app.LayoutAndDraw(true);
+                    Check(CountOnScreen(app, "@fuxghostattr") == 1, "undo brings the attribute row back exactly once");
+                    app.Keyboard.RaiseKeyDownEvent(Key.Z.WithCtrl); // undo the insert
+
+                    Check(Program.TryInsert(ui, firstChild, InsertKind.Element, InsertPos.Child, "fuxghostelem") == null,
+                        "nested element insert accepted");
+                    app.LayoutAndDraw(true);
+                    Check(CountOnScreen(app, "<fuxghostelem>") == 1, "nested element is drawn");
+                    Check(Program.TryDelete(ui, LastShown(firstChild)) == null, "nested element delete accepted");
+                    app.LayoutAndDraw(true);
+                    Check(CountOnScreen(app, "<fuxghostelem>") == 0, "a deleted element leaves the tree");
+                    app.Keyboard.RaiseKeyDownEvent(Key.Z.WithCtrl); // undo the delete
+                    app.Keyboard.RaiseKeyDownEvent(Key.Z.WithCtrl); // undo the insert
                 }
 
                 app.Keyboard.RaiseKeyDownEvent(Key.S.WithCtrl); // undo churn marks dirty; end clean

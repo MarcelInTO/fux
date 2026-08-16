@@ -423,7 +423,15 @@ namespace Fux
     // Pure-DOM delete with exact-position undo: the successor sibling (or successor
     // attribute) is the anchor for reinsertion. The document root is off limits — an
     // empty document would ripple through every pane for little gain.
-    internal sealed class DeleteNode : Command, INodeCommand
+    //
+    // Reports its container, because a delete is the one command whose Node is not the node
+    // that changed: the deleted node is gone, so Node is the container, and the view refresh
+    // anchored on it (Program.RefreshTreeFor rebuilds the *parent* of what it is handed)
+    // lands one level too high. Branch.Refresh never touches descendants, so the container's
+    // own child list would keep the row of a node that is no longer in the document — still
+    // drawn, still editable, and invisible to find, which walks the DOM. Naming the container
+    // here puts the rebuild where the child actually left from.
+    internal sealed class DeleteNode : Command, INodeCommand, IContainerCommand
     {
         private readonly XmlNode _node;
         private XmlElement _container;   // parent element / attribute owner
@@ -443,6 +451,12 @@ namespace Fux
         public XmlNode Node => _current;
         public override string Name => "Delete";
         public override bool IsNoop => false;
+
+        // Assigned in Do, and every refresh happens after one of Do/Undo/Redo has run.
+        public IEnumerable<XmlNode> Containers
+        {
+            get { if (_container != null) yield return _container; }
+        }
 
         public override void Do()
         {
