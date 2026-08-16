@@ -188,13 +188,32 @@ namespace Fux
         // --------------------------------------------------------------------
         private static int RunUi(string file)
         {
+            // Before BuildUi: the driver blanks the window title as it initialises, so this is
+            // the last moment the user's own title still exists to be saved. UpdateTitle then
+            // names the window for the document, here and on every later change. See
+            // TerminalTitle.
+            TerminalTitle.Push();
             var ui = BuildUi(file);
+
+            // BuildUi has already named the window (UpdateTitle), but that name does not
+            // survive: the driver buffers its init preamble — the blanking OSC 0 among it —
+            // and flushes the lot when the loop starts, landing *after* anything written
+            // straight to stdout beforehand. Measured under a PTY: the title arrives, then the
+            // blank wipes it, and the window stays nameless until the first edit happens to
+            // rewrite it. So say it again from the loop, where nothing is queued behind us.
+            // A timeout cannot fire before the loop runs, which is the ordering this needs.
+            ui.App.AddTimeout(TimeSpan.FromMilliseconds(1), () =>
+            {
+                TerminalTitle.Set(_model.FileName, _model.Dirty);
+                return false; // once
+            });
 
             // Last-resort net for exceptions that bypass the main loop (e.g. the driver's
             // input thread): restore the terminal and leave a stack behind before dying.
             AppDomain.CurrentDomain.UnhandledException += (s, e) =>
             {
                 try { ui.App.Dispose(); } catch { }
+                TerminalTitle.Pop();
                 WriteCrashLog(file, e.ExceptionObject as Exception);
             };
 
@@ -209,10 +228,12 @@ namespace Fux
                 // then leave the stack somewhere findable: stderr scrolls away with the
                 // wreckage, the crash log survives.
                 try { ui.App.Dispose(); } catch { /* the driver may already be wedged */ }
+                TerminalTitle.Pop(); // the window keeps fux's name otherwise, long after fux
                 WriteCrashLog(file, ex);
                 return 70; // EX_SOFTWARE
             }
             ui.App.Dispose();
+            TerminalTitle.Pop();
             return 0;
         }
 
@@ -1225,6 +1246,9 @@ namespace Fux
         {
             var name = _model.FileName == null ? "Tree" : System.IO.Path.GetFileName(_model.FileName);
             ui.Tree.Title = _model.Dirty ? name + " *" : name;
+            // The terminal window carries the same two facts. One place computes them, so the
+            // pane title and the window title cannot drift apart.
+            TerminalTitle.Set(_model.FileName, _model.Dirty);
         }
 
         private static void SaveFile(Ui ui)
