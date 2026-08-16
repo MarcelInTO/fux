@@ -172,7 +172,11 @@ jobs:
               script -qec "dotnet run --project src/Fux -c Release -- --drill $f" /dev/null > drill.out 2>&1
             fi
             set -e
-            sed 's/\x1b\[[0-9;?]*[a-zA-Z]//g' drill.out | grep -aE '^\s*\[(ok|FAIL)\]|DRILL:' || true
+            # Unanchored on purpose: the PTY merges the report (stderr) with the TUI's
+            # repaints (stdout), so a check that follows a repaint starts mid-line. Anchoring
+            # at '^' hid 21 of 282 checks from this log — including the pane-title and
+            # quit-prompt guards — so a failure in one of them would be invisible here.
+            sed 's/\x1b\[[0-9;?]*[a-zA-Z]//g' drill.out | grep -aoE '\[(ok|FAIL)\][^[:cntrl:]]*|DRILL: [^[:cntrl:]]*' || true
             echo "::endgroup::"
             grep -aq "DRILL: PASS" drill.out || { echo "::error::TUI drill failed on $f"; fail=1; }
           done

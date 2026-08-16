@@ -69,10 +69,19 @@ dump:
 	dotnet run --project src/Fux -c $(CONFIG) -- --dump "$(FILE)"
 
 ## drill: headless interactive self-test of the TUI (key injection + render assertions)
+# The report goes to stderr and the TUI's repaints to stdout, and the PTY merges the two, so
+# any check that follows a repaint starts mid-line. Anchoring the filter at '^' therefore hid
+# 21 of 282 checks from the printed report — the pane-title guard, the quit-prompt guard and
+# both nudge row counts among them. Pass/fail was never affected (that is the DRILL: PASS grep
+# below), but a failure in one of those checks left no trace in the log, which is precisely
+# when the log matters. Match anywhere in the line and print only the match.
+#
+# Do NOT "simplify" this by dropping script(1): with no TTY the drill runs 277 checks rather
+# than 282, so the real terminal is exercising strictly more.
 drill:
 	@script -q /dev/null dotnet run --project src/Fux -c $(CONFIG) -- --drill "$(FILE)" > /tmp/fux-drill.out 2>&1; \
-	sed 's/\x1b\[[0-9;?]*[a-zA-Z]//g' /tmp/fux-drill.out | grep -E '^\s*\[(ok|FAIL)\]|DRILL:'; \
-	grep -q "DRILL: PASS" /tmp/fux-drill.out
+	sed 's/\x1b\[[0-9;?]*[a-zA-Z]//g' /tmp/fux-drill.out | grep -aoE '\[(ok|FAIL)\][^[:cntrl:]]*|DRILL: [^[:cntrl:]]*'; \
+	grep -aq "DRILL: PASS" /tmp/fux-drill.out
 
 ## smoke: headless engine build + XSD-validation check
 smoke:
