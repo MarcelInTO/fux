@@ -1252,7 +1252,9 @@ namespace Fux
             // fixture and reopens the dialog rather than restarting fux. FUX_CONFIG_DIR was
             // pointed at a scratch directory at the top of Run, so nothing here can read — or
             // be perturbed by — the config of whoever is running the drill.
-            var cfgPath = System.IO.Path.Combine(Snippets.ConfigDir(), Snippets.FileName);
+            // ConfigPath rather than Combine(ConfigDir(), FileName): it is the same value,
+            // null-guarded, and computed in one place instead of two that can drift.
+            var cfgPath = Snippets.ConfigPath();
             {
                 // No file at all: the feature is invisible, and says nothing.
                 if (System.IO.File.Exists(cfgPath)) System.IO.File.Delete(cfgPath);
