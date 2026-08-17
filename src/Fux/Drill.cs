@@ -1289,14 +1289,6 @@ namespace Fux
                 Check(!broken.Missing && broken.Blocks.Count == 0 && broken.Problem != null,
                     $"an unparseable config reports instead of throwing ('{broken.Problem}')");
 
-                // Reachability: the group shows six rows, so a longer config has to scroll or
-                // its tail is unreachable. Arithmetic, asserted directly — the alternative is
-                // trusting that a widget scrolls, and OptionSelector does not.
-                Check(Program.BlockScrollTop(0, 6, 0) == 0, "a selection already in view does not scroll");
-                Check(Program.BlockScrollTop(9, 6, 0) == 4, "a selection below the fold scrolls it into view");
-                Check(Program.BlockScrollTop(2, 6, 5) == 2, "a selection above the fold scrolls back up");
-                Check(Program.BlockScrollTop(39, 6, 0) == 34, "the last of 40 blocks is reachable");
-
                 // Inserting one. The host is an element the drill just made, so its layout is
                 // known on every fixture: freshly inserted and childless, which is the case
                 // XmlLayout indents into.
@@ -1353,46 +1345,100 @@ namespace Fux
                     app.Keyboard.RaiseKeyDownEvent(Key.Z.WithCtrl); // undo the host
                 }
 
-                // The dialog itself. ^N's nested Run blocks the key injector, so a timeout
-                // armed beforehand does the work from inside it — the §14a recipe.
-                System.IO.File.WriteAllText(cfgPath, GoodConfig);
-                // ^N returns immediately with nothing selected, and the probe would then never
-                // run — leaving every assertion below trivially true. Anchor the selection.
-                ui.Tree.SelectedObject = Program.Model.Document?.DocumentElement;
-                ui.Tree.SetFocus();
-                string shown = null; bool fieldOffWithBlock = false, kindOffWithBlock = false, fieldOnWithNone = false;
-                bool opened = RunInsertDialog(app, ui, () =>
+                // --- The Snippets panel. A LONG config on purpose: the first version of
+                // this feature put the list in a corner of the Insert dialog and silently
+                // clipped it to two entries, and the drill stayed green because its fixture
+                // had three blocks and the scroll behaviour was only ever asserted as
+                // arithmetic. So the fixture here overflows the panel, and the oracle is the
+                // rows actually on screen.
+                System.IO.File.WriteAllText(cfgPath, ManyConfig(40));
+                var many = Snippets.Load();
+                Check(many.Blocks.Count == 40, $"a 40-block config loads whole (got {many.Blocks.Count})");
+
+                // The shared vocabulary means what it says. Direct oracle: the indirect one
+                // (an insert landing in the wrong parent) catches a broken mapping only by
+                // side effect, and says nothing about which way it broke.
+                Check(Program.PosAt(0) == InsertPos.After, "Below inserts after the selection");
+                Check(Program.PosAt(1) == InsertPos.Before, "Above inserts before it");
+                Check(Program.PosAt(2) == InsertPos.Child, "Child inserts into it");
+                Check(Program.PosLabels.Length == 3 && Program.PosLabels[0] == "Below",
+                    "...and Below is the default, being first");
+
+                string shown = null;
+                int rowsShown = 0, listTop = -1, listBottom = -1;
+                bool opened = RunSnippetPanel(app, ui, () =>
                 {
                     app.LayoutAndDraw(true);
                     shown = ScreenText(app);
-                    var sel = FindById(app.TopRunnable as View, Program.BlockSelId) as OptionSelector;
-                    var nameField = FindById(app.TopRunnable as View, Program.NameFieldId);
-                    var kind = FindById(app.TopRunnable as View, Program.KindSelId);
-                    if (sel != null && nameField != null && kind != null)
+                    for (int i = 0; i < 40; i++)
                     {
-                        sel.Value = 1;                      // pick the first real block
-                        fieldOffWithBlock = !nameField.Enabled;
-                        kindOffWithBlock = !kind.Enabled;
-                        sel.Value = 0;                      // back to (none)
-                        fieldOnWithNone = nameField.Enabled;
+                        if (CountOnScreen(app, SnippetName(i)) <= 0) continue;
+                        rowsShown++;
+                        if (listTop < 0) listTop = i;
+                        listBottom = i;
                     }
                 });
-                Check(opened, $"the Insert dialog opens (probe ran inside the modal) [{_lastDialogDiag}]");
-                Check(shown != null && shown.Contains("Block:"), "the Insert dialog grows a Block group");
-                Check(shown != null && shown.Contains("Footnote") && shown.Contains(Program.NoBlock),
-                    "...listing (none) and the configured blocks");
-                Check(fieldOffWithBlock && kindOffWithBlock,
-                    $"choosing a block disables the name field and kind group (name off={fieldOffWithBlock}, kind off={kindOffWithBlock})");
-                Check(fieldOnWithNone, "...and (none) re-enables them");
+                Check(opened, $"the Snippets panel opens [{_lastDialogDiag}]");
+                Check(shown != null && shown.Contains(Program.PosLabels[0])
+                      && shown.Contains(Program.PosLabels[2]),
+                    "...with the position row");
+                // The bug this replaces showed TWO of nineteen. Ten is a floor, not a target:
+                // it says the list got a panel's worth of height rather than a corner's.
+                Check(rowsShown >= 10,
+                    $"...and a list deep enough to work in ({rowsShown} of 40 rows on screen)");
+                Check(listTop == 0, $"...starting at the first snippet in file order (row 0 was {listTop})");
 
-                // And with no config, the dialog is exactly what it always was.
-                System.IO.File.Delete(cfgPath);
-                string bare = null;
-                bool openedBare = RunInsertDialog(app, ui, () => { app.LayoutAndDraw(true); bare = ScreenText(app); });
-                Check(openedBare, "the Insert dialog opens with no config too");
-                Check(bare != null && !bare.Contains("Block:"), "no config: the dialog has no Block group at all");
-                Check(bare != null && bare.Contains("Name (element/attribute/PI):"),
-                    "...and is otherwise the dialog it has always been");
+                // Reachable: End jumps to the last entry, and it must be ON SCREEN afterwards —
+                // the selection moving is not the same as the user being able to see it.
+                bool lastVisible = false, lastSelected = false;
+                RunSnippetPanel(app, ui, () =>
+                {
+                    var list = FindById(app.TopRunnable as View, Program.SnippetListId) as ListView;
+                    if (list == null) return;
+                    list.MoveEnd();
+                    app.LayoutAndDraw(true);
+                    lastSelected = list.SelectedItem == 39;
+                    lastVisible = CountOnScreen(app, SnippetName(39)) > 0;
+                });
+                Check(lastSelected, "the last of 40 snippets can be selected");
+                Check(lastVisible, "...and is on screen when it is");
+
+                // Enter on the list commits, so the whole gesture is ^B, arrow, Enter — no Tab
+                // and no button. 2.4.17 has no OpenSelectedItem, so this rides on Accept
+                // bubbling to the default button, which is worth pinning rather than assuming.
+                // Anchored on a CHILD, not the document element: the default position is
+                // Below, and a sibling of the root is refused — which would fail this check
+                // for a reason that has nothing to do with Enter, and would leave an error
+                // modal open with no timeout armed to answer it.
+                XmlElement anchorE = null;
+                foreach (XmlNode c in Program.Model.Document.DocumentElement.ChildNodes)
+                    if (c is XmlElement ce) { anchorE = ce; break; }
+                var parentE = (XmlElement)(anchorE?.ParentNode ?? Program.Model.Document.DocumentElement);
+                var beforeEnter = parentE.ChildNodes.Count;
+                ui.Tree.SelectedObject = (XmlNode)anchorE ?? Program.Model.Document.DocumentElement;
+                string enterDiag = "";
+                RunSnippetPanel(app, ui, () =>
+                {
+                    var list = FindById(app.TopRunnable as View, Program.SnippetListId) as ListView;
+                    var focused = (app.TopRunnable as View)?.MostFocused;
+                    enterDiag = $"list={(list == null ? "null" : "found")} listFocused={list?.HasFocus} "
+                              + $"focused={focused?.GetType().Name}/{focused?.Id}";
+                    if (list != null) list.SelectedItem = 0;
+                    bool handled = app.Keyboard.RaiseKeyDownEvent(Key.Enter);
+                    enterDiag += $" enterHandled={handled} depthAfter={ui.ModalDepth}";
+                }, escOut: false);
+                Check(parentE.ChildNodes.Count > beforeEnter,
+                    $"Enter on the snippet list inserts without touching a button [{enterDiag}]");
+                app.Keyboard.RaiseKeyDownEvent(Key.Z.WithCtrl);
+
+                // And the Insert dialog is its old self again: no block group, no snippets.
+                string insert = null;
+                RunInsertDialog(app, ui, () => { app.LayoutAndDraw(true); insert = ScreenText(app); });
+                Check(insert != null && !insert.Contains(SnippetName(0)),
+                    "the Insert dialog carries no snippets");
+                Check(insert != null && insert.Contains("Name (element/attribute/PI):")
+                      && insert.Contains(Program.PosLabels[0]),
+                    "...and is the Insert dialog, with the shared position words");
 
                 // Undo leaves the model dirty even when the content matches, and §15's ^Q has
                 // no timeout armed to answer a prompt — it would hang the run, not fail it.
@@ -1656,6 +1702,45 @@ namespace Fux
         /// that will not close fails the run instead of hanging CI.
         /// </summary>
         private static string _lastDialogDiag = "";
+
+        /// <summary>Row label for entry i of the generated long config. Unique per row, so a
+        /// count over the screen is a count of exactly that row.</summary>
+        private static string SnippetName(int i) => $"fuxsnip{i:D2}";
+
+        /// <summary>A config with <paramref name="n"/> blocks — long enough to overflow the
+        /// panel, which is the case the first version of this feature got wrong.</summary>
+        private static string ManyConfig(int n)
+        {
+            var sb = new System.Text.StringBuilder("<snippets>\n");
+            for (int i = 0; i < n; i++)
+                sb.Append($"  <snippet name=\"{SnippetName(i)}\"><b{i:D2}/></snippet>\n");
+            return sb.Append("</snippets>").ToString();
+        }
+
+        /// <summary>
+        /// Open the Snippets panel, run <paramref name="probe"/> inside it, and (unless the
+        /// probe closes it itself) Esc back out. Same recipe as RunInsertDialog.
+        /// </summary>
+        private static bool RunSnippetPanel(Terminal.Gui.App.IApplication app, Program.Ui ui,
+                                            Action probe, bool escOut = true)
+        {
+            int ticks = 0;
+            bool probed = false;
+            var tok = app.AddTimeout(TimeSpan.FromMilliseconds(100), () =>
+            {
+                ticks++;
+                if (!probed && ui.ModalDepth > 0) { probed = true; probe(); }
+                if (escOut) app.Keyboard.RaiseKeyDownEvent(Key.Esc);
+                if (ticks > 20 && !ReferenceEquals(app.TopRunnable, ui.Top))
+                    app.RequestStop(app.TopRunnable);
+                return ticks <= 30;
+            });
+            _lastDialogDiag = $"sel={(ui.Tree.SelectedObject == null ? "null" : "set")} depth={ui.ModalDepth}";
+            Program.StartSnippets(ui);
+            app.RemoveTimeout(tok); // never leave one armed for the next modal — see §14a
+            _lastDialogDiag += $" ticks={ticks} probed={probed}";
+            return probed;
+        }
 
         private static bool RunInsertDialog(Terminal.Gui.App.IApplication app, Program.Ui ui, Action probe)
         {
