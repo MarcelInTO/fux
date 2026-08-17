@@ -286,21 +286,7 @@ namespace Fux
             }
             else
             {
-                var anchorNode = anchor is XmlAttribute at ? at.OwnerElement : anchor;
-                if (pos == InsertPos.Child)
-                {
-                    _container = anchorNode as XmlElement
-                        ?? throw new ArgumentException("select an element to insert into");
-                }
-                else
-                {
-                    if (anchor is XmlAttribute)
-                        throw new ArgumentException("cannot insert before/after an attribute — pick 'Child' to insert into its element");
-                    _container = anchorNode.ParentNode as XmlElement
-                        ?? throw new ArgumentException("cannot insert siblings of the document root");
-                    _ref = anchorNode;
-                    _before = pos == InsertPos.Before;
-                }
+                ResolveTarget(anchor, pos, out _container, out _ref, out _before);
 
                 switch (kind)
                 {
@@ -322,6 +308,83 @@ namespace Fux
                 }
             }
             _current = _node;
+        }
+
+        // Insert a user-defined named block (Snippets): the whole template subtree, at the
+        // chosen position, as ONE undoable command. There is no CompoundCommand here and none
+        // is wanted — a subtree is a single node, so the existing insert/undo path carries it
+        // unchanged, and undo removes the root and everything under it in one RemoveChild.
+        public InsertNewNode(XmlNode anchor, InsertPos pos, XmlElement template, string indentChars)
+        {
+            _indentChars = indentChars;
+            if (anchor == null) throw new ArgumentException("nothing is selected");
+            if (template == null) throw new ArgumentException("that block has no XML to insert");
+            ResolveTarget(anchor, pos, out _container, out _ref, out _before);
+
+            // Copied, never moved: the template belongs to the config's own document and the
+            // same block may be inserted any number of times. A namespace declaration written
+            // in the config is an attribute on the template, so it is imported along with it —
+            // the same effect InsertNewNode's generated _nsDecl has for a typed-in name.
+            var node = (XmlElement)_container.OwnerDocument.ImportNode(template, true);
+
+            // Lay the copy out WHILE IT IS STILL DETACHED. That is what keeps this simple:
+            // nothing points into the fragment yet, so its internal whitespace needs no undo
+            // bookkeeping at all. Only the whitespace around it is delicate, and PlanLayout
+            // already owns exactly that. A container fux would not indent into (inline, or
+            // holding text, or a document with no layout of its own) gets the fragment with no
+            // whitespace, which is what the single-node path already does.
+            if (XmlLayout.ShouldIndent(_container))
+                IndentFragment(node, XmlLayout.ChildIndent(_container, indentChars ?? "  "), indentChars ?? "  ");
+
+            _node = node;
+            _current = _node;
+        }
+
+        // Where an element-side insert lands. Shared so the typed-in-name path and the block
+        // path cannot drift apart on what "Child", "Before" and "After" mean.
+        private static void ResolveTarget(XmlNode anchor, InsertPos pos,
+                                          out XmlElement container, out XmlNode refNode, out bool before)
+        {
+            var anchorNode = anchor is XmlAttribute at ? at.OwnerElement : anchor;
+            refNode = null;
+            before = false;
+            if (pos == InsertPos.Child)
+            {
+                container = anchorNode as XmlElement
+                    ?? throw new ArgumentException("select an element to insert into");
+            }
+            else
+            {
+                if (anchor is XmlAttribute)
+                    throw new ArgumentException("cannot insert before/after an attribute — pick 'Child' to insert into its element");
+                container = anchorNode.ParentNode as XmlElement
+                    ?? throw new ArgumentException("cannot insert siblings of the document root");
+                refNode = anchorNode;
+                before = pos == InsertPos.Before;
+            }
+        }
+
+        // Give each level of a detached fragment its own line. The rules are XmlLayout's, so a
+        // block lands looking like the document it lands in: an element holding text keeps its
+        // single line (breaking it would change the value the document holds), and an element
+        // with nothing in it stays spelled <a/>.
+        private static void IndentFragment(XmlElement element, string ownIndent, string indentChars)
+        {
+            if (XmlLayout.HasTextContent(element)) return;
+
+            var kids = new List<XmlNode>();
+            foreach (XmlNode c in element.ChildNodes)
+                if (!XmlLayout.IsWhitespaceNode(c)) kids.Add(c); // comments and PIs get lines too
+            if (kids.Count == 0) return;
+
+            var doc = element.OwnerDocument;
+            var childIndent = ownIndent + indentChars;
+            foreach (var k in kids)
+            {
+                element.InsertBefore(doc.CreateWhitespace(childIndent), k);
+                if (k is XmlElement ke) IndentFragment(ke, childIndent, indentChars);
+            }
+            element.AppendChild(doc.CreateWhitespace(ownIndent)); // in front of the end tag
         }
 
         private static void RequireName(InsertKind kind, string name)

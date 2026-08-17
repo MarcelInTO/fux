@@ -82,6 +82,7 @@ file.
 | `^C` / `^X` / `^V` | copy / cut / paste the selected node's value |
 | `^R` | rename element / attribute / PI |
 | `^N` | insert element, attribute, comment or PI |
+| `^B` | insert a named block (see [Named blocks](#named-blocks)) |
 | `Del` | delete node |
 | `^Shift+←↑↓→` | nudge: reorder siblings, promote / demote |
 | `^Z` / `^Y` | undo / redo |
@@ -114,11 +115,69 @@ clipboard. To make a terminal selection instead (to grab part of the tree, say),
   they went in, rather than being re-indented wholesale.
 - **Find** by text, regular expression or XPath.
 - **Import** from HTML, JSON and CSV.
+- **Named blocks** you define once and insert with `^B` — see
+  [Named blocks](#named-blocks).
 - **Full undo/redo** across every edit, including position-exact delete undo.
 - **Solarized light/dark** theming, switchable at runtime.
 
 Not included, by design: the HTML and XSLT preview panes, which need a browser
 control that has no place in a terminal.
+
+## Named blocks
+
+Structures you type often can be named once in a config file and inserted with `^B`
+(Edit ▸ Snippet…). The panel puts the position on one row and the whole list under
+it, in the order the file lists them, so you can order the file to suit the work:
+
+```
+┌──────────────┤Snippet at <block>├──────────────┐
+│ ◉ Below  ○ Above  ○ Child                      │
+│                                                │
+│ Paragraph                                      │
+│ Argument                                       │
+│ Footnote                                       │
+│ …                                              │
+│                          ⟦ Cancel ⟧  ⟦► OK ◄⟧  │
+└────────────────────────────────────────────────┘
+```
+
+The list has focus when the panel opens and `Enter` on it commits, so inserting is
+`^B`, arrow, `Enter` — no `Tab`, no button, no mouse. The list scrolls when the
+config is longer than the screen, and the panel reopens on the snippet and position
+you used last, which is what makes a run of twelve verse-lines bearable. Picking one
+inserts the element, its attributes and everything under it as a single undoable
+edit.
+
+The file is `~/.config/fux/snippets.xml` (`$XDG_CONFIG_HOME/fux/snippets.xml` if that
+is set; `%APPDATA%\fux\snippets.xml` on Windows):
+
+```xml
+<snippets>
+  <snippet name="Footnote">
+    <block kind="footnote"/>
+  </snippet>
+  <snippet name="Sidebar">
+    <sidebar>
+      <title/>
+      <body/>
+    </sidebar>
+  </snippet>
+</snippets>
+```
+
+- Each `<snippet>` needs a `name` — that is the label in the dialog — and holds
+  **exactly one element**, which may nest as deeply as you like and carry attributes
+  and text. The indentation around it in the config is ignored; a block is re-indented
+  to wherever it lands.
+- Blocks appear in the order the file lists them.
+- The file is re-read every time the dialog opens, so you can edit it in fux and see
+  the change on the next `^N`.
+- A prefix a block uses must be declared in the config, on `<snippets>` or on the
+  block itself; the declaration travels with the block.
+- A snippet that cannot load is skipped and reported under the group, and the rest of
+  the file still loads. A config that will not parse at all never stops fux opening a
+  document.
+- With no config file, the dialog is exactly what it has always been — no extra group.
 
 ## Development
 

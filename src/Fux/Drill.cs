@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.Xml;
 using Terminal.Gui.Drawing;
 using Terminal.Gui.Input;
+using Terminal.Gui.ViewBase;
+using Terminal.Gui.Views;
 using XmlNotepad;
 
 namespace Fux
@@ -24,6 +26,13 @@ namespace Fux
             // the time it runs, reading `file` back would compare fux's output against fux's
             // own output and pass no matter how badly the writer mangles a document.
             byte[] sourceBytes = file == null ? null : System.IO.File.ReadAllBytes(file);
+
+            // Point the named-block config at a scratch directory before anything can read it,
+            // so the drill neither depends on nor disturbs the config of whoever is running it.
+            // Set for the whole run, not just §14b: the Insert dialog reads it on every open.
+            var cfgDir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "fux-drill-config");
+            System.IO.Directory.CreateDirectory(cfgDir);
+            Environment.SetEnvironmentVariable("FUX_CONFIG_DIR", cfgDir);
 
             var ui = Program.BuildUi(file);
             var app = ui.App;
@@ -1208,7 +1217,10 @@ namespace Fux
                 // the prompt is Cancel (ModalQuery returns null, ConfirmDiscard reads that
                 // as choice 2), which is the answer under test.
                 int escs = 0, depthWhilePrompting = -1;
-                app.AddTimeout(TimeSpan.FromMilliseconds(100), () =>
+                // Held so it can be removed below. A timeout that outlives its modal is not
+                // idle: it fires inside the NEXT nested loop and Escs whatever is open then,
+                // which is how §14b's dialog was being shut before its own probe could run.
+                var escTok = app.AddTimeout(TimeSpan.FromMilliseconds(100), () =>
                 {
                     escs++;
                     // ModalDepth is raised by nothing but ModalQuery, so reading it from
@@ -1223,6 +1235,7 @@ namespace Fux
                     return escs <= 30;
                 });
                 app.Keyboard.RaiseKeyDownEvent(Key.Q.WithCtrl);
+                app.RemoveTimeout(escTok);
                 Check(depthWhilePrompting == 1,
                     $"^Q on unsaved changes prompts (modal depth while quitting was {depthWhilePrompting})");
                 Check(escs == 1, $"the prompt closed on the first Esc (took {escs})");
@@ -1233,6 +1246,205 @@ namespace Fux
                 // on a saved document has to stay one keystroke. §15 quits for real.
                 Check(Program.TryOpen(ui, file) == null, "esc drill: the document reopens clean");
                 Check(!Program.Model.Dirty, "esc drill: nothing left to lose");
+            }
+
+            // --- 14b. Named blocks. The config is re-read on every ^N, so the drill writes a
+            // fixture and reopens the dialog rather than restarting fux. FUX_CONFIG_DIR was
+            // pointed at a scratch directory at the top of Run, so nothing here can read — or
+            // be perturbed by — the config of whoever is running the drill.
+            // ConfigPath rather than Combine(ConfigDir(), FileName): it is the same value,
+            // null-guarded, and computed in one place instead of two that can drift.
+            var cfgPath = Snippets.ConfigPath();
+            {
+                // No file at all: the feature is invisible, and says nothing.
+                if (System.IO.File.Exists(cfgPath)) System.IO.File.Delete(cfgPath);
+                var absent = Snippets.Load();
+                Check(absent.Missing && absent.Blocks.Count == 0 && absent.Problem == null,
+                    "no config file: no blocks and no complaint");
+
+                // A clean config.
+                System.IO.File.WriteAllText(cfgPath, GoodConfig);
+                var set = Snippets.Load();
+                Check(!set.Missing && set.Problem == null && set.Blocks.Count == 3,
+                    $"a clean config loads every block (got {set.Blocks.Count}, problem '{set.Problem}')");
+                Check(set.Blocks.Count == 3 && set.Blocks[0].Name == "Footnote"
+                      && set.Blocks[1].Name == "Sidebar" && set.Blocks[2].Name == "Prefixed",
+                    "blocks keep the order the file lists them in");
+                Check(set.Blocks.Count > 0 && set.Blocks[0].Template.LocalName == "block"
+                      && set.Blocks[0].Template.GetAttribute("kind") == "footnote",
+                    "a block keeps its element name and attributes");
+
+                // One bad snippet must not cost the others. Two are wrong here for different
+                // reasons (no name, two element children); both are skipped, both good ones stay.
+                System.IO.File.WriteAllText(cfgPath, MixedConfig);
+                var mixed = Snippets.Load();
+                Check(mixed.Blocks.Count == 2 && mixed.Blocks[0].Name == "Keeper"
+                      && mixed.Blocks[1].Name == "AlsoKeeper",
+                    $"a partly broken config still loads its good blocks (got {mixed.Blocks.Count})");
+                Check(mixed.Problem != null && mixed.Problem.Contains("2"),
+                    $"...and reports how many it skipped ('{mixed.Problem}')");
+
+                // A file that will not parse at all: a complaint, no blocks, and NOT an
+                // exception — a typo in a config must never stop fux opening a document.
+                System.IO.File.WriteAllText(cfgPath, "<snippets><snippet name='x'></snippets>");
+                var broken = Snippets.Load();
+                Check(!broken.Missing && broken.Blocks.Count == 0 && broken.Problem != null,
+                    $"an unparseable config reports instead of throwing ('{broken.Problem}')");
+
+                // Inserting one. The host is an element the drill just made, so its layout is
+                // known on every fixture: freshly inserted and childless, which is the case
+                // XmlLayout indents into.
+                System.IO.File.WriteAllText(cfgPath, GoodConfig);
+                var blocks = Snippets.Load().Blocks;
+                // The LIVE document, not the `doc` captured at the top of Run: §13c and §14a
+                // both reopen the file, so that reference is a detached document by now. Every
+                // DOM assertion below would pass on it while the saved bytes showed nothing —
+                // which is exactly how this was caught.
+                var rootB = Program.Model.Document?.DocumentElement;
+                if (rootB != null && blocks.Count == 3)
+                {
+                    Check(Program.TryInsert(ui, rootB, InsertKind.Element, InsertPos.Child, "fuxblockhost") == null,
+                        "block drill: host element inserted");
+                    var host = LastShown(rootB) as XmlElement;
+
+                    Check(Program.TryInsertBlock(ui, host, InsertPos.Child, blocks[1]) == null,
+                        "a named block inserts");
+                    var sidebar = host == null ? null : LastShown(host) as XmlElement;
+                    Check(sidebar != null && sidebar.LocalName == "sidebar",
+                        "the block's root element lands in the document");
+                    Check(sidebar != null && ChildElementNames(sidebar) == "title|body",
+                        $"...with its whole subtree, in order (got '{(sidebar == null ? "" : ChildElementNames(sidebar))}')");
+                    Check(sidebar != null && sidebar.SelectSingleNode("*[local-name()='body']")?.InnerText == "here",
+                        "...and the text inside it");
+
+                    // Layout: every level on its own line, each deeper than its parent. Read
+                    // from the SAVED BYTES, because that is the only place indentation is
+                    // observable — a DOM comparison would pass on a fragment written flat.
+                    var probeB = System.IO.Path.Combine(
+                        System.IO.Path.GetDirectoryName(Program.Model.FileName), "fux_drill_block.xml");
+                    Program.Model.SaveCopy(probeB);
+                    var savedB = System.IO.File.ReadAllText(probeB);
+                    int iSide = IndentOf(savedB, "<sidebar"), iTitle = IndentOf(savedB, "<title");
+                    Check(iSide >= 0 && iTitle > iSide,
+                        $"an inserted block is indented level by level (sidebar at {iSide}, title at {iTitle})");
+                    System.IO.File.Delete(probeB);
+
+                    // One command, however many nodes: a single ^Z takes the whole subtree.
+                    app.Keyboard.RaiseKeyDownEvent(Key.Z.WithCtrl);
+                    Check(host != null && XmlLayout.IsChildless(host),
+                        "one undo removes the whole block, not one node of it");
+                    Check(host != null && host.IsEmpty, "...and the host is spelled <a/> again");
+
+                    // A prefix declared in the config rides along with the block.
+                    Check(Program.TryInsertBlock(ui, host, InsertPos.Child, blocks[2]) == null,
+                        "a namespaced block inserts");
+                    var tag = host == null ? null : LastShown(host) as XmlElement;
+                    Check(tag != null && tag.NamespaceURI == "uri:block" && tag.Prefix == "z",
+                        $"...keeping its namespace (got '{tag?.NamespaceURI}')");
+                    Check(tag != null && tag.GetAttribute("xmlns:z") == "uri:block",
+                        "...and carrying its declaration into the document");
+                    app.Keyboard.RaiseKeyDownEvent(Key.Z.WithCtrl); // undo the namespaced block
+                    app.Keyboard.RaiseKeyDownEvent(Key.Z.WithCtrl); // undo the host
+                }
+
+                // --- The Snippets panel. A LONG config on purpose: the first version of
+                // this feature put the list in a corner of the Insert dialog and silently
+                // clipped it to two entries, and the drill stayed green because its fixture
+                // had three blocks and the scroll behaviour was only ever asserted as
+                // arithmetic. So the fixture here overflows the panel, and the oracle is the
+                // rows actually on screen.
+                System.IO.File.WriteAllText(cfgPath, ManyConfig(40));
+                var many = Snippets.Load();
+                Check(many.Blocks.Count == 40, $"a 40-block config loads whole (got {many.Blocks.Count})");
+
+                // The shared vocabulary means what it says. Direct oracle: the indirect one
+                // (an insert landing in the wrong parent) catches a broken mapping only by
+                // side effect, and says nothing about which way it broke.
+                Check(Program.PosAt(0) == InsertPos.After, "Below inserts after the selection");
+                Check(Program.PosAt(1) == InsertPos.Before, "Above inserts before it");
+                Check(Program.PosAt(2) == InsertPos.Child, "Child inserts into it");
+                Check(Program.PosLabels.Length == 3 && Program.PosLabels[0] == "Below",
+                    "...and Below is the default, being first");
+
+                string shown = null;
+                int rowsShown = 0, listTop = -1, listBottom = -1;
+                bool opened = RunSnippetPanel(app, ui, () =>
+                {
+                    app.LayoutAndDraw(true);
+                    shown = ScreenText(app);
+                    for (int i = 0; i < 40; i++)
+                    {
+                        if (CountOnScreen(app, SnippetName(i)) <= 0) continue;
+                        rowsShown++;
+                        if (listTop < 0) listTop = i;
+                        listBottom = i;
+                    }
+                });
+                Check(opened, $"the Snippets panel opens [{_lastDialogDiag}]");
+                Check(shown != null && shown.Contains(Program.PosLabels[0])
+                      && shown.Contains(Program.PosLabels[2]),
+                    "...with the position row");
+                // The bug this replaces showed TWO of nineteen. Ten is a floor, not a target:
+                // it says the list got a panel's worth of height rather than a corner's.
+                Check(rowsShown >= 10,
+                    $"...and a list deep enough to work in ({rowsShown} of 40 rows on screen)");
+                Check(listTop == 0, $"...starting at the first snippet in file order (row 0 was {listTop})");
+
+                // Reachable: End jumps to the last entry, and it must be ON SCREEN afterwards —
+                // the selection moving is not the same as the user being able to see it.
+                bool lastVisible = false, lastSelected = false;
+                RunSnippetPanel(app, ui, () =>
+                {
+                    var list = FindById(app.TopRunnable as View, Program.SnippetListId) as ListView;
+                    if (list == null) return;
+                    list.MoveEnd();
+                    app.LayoutAndDraw(true);
+                    lastSelected = list.SelectedItem == 39;
+                    lastVisible = CountOnScreen(app, SnippetName(39)) > 0;
+                });
+                Check(lastSelected, "the last of 40 snippets can be selected");
+                Check(lastVisible, "...and is on screen when it is");
+
+                // Enter on the list commits, so the whole gesture is ^B, arrow, Enter — no Tab
+                // and no button. 2.4.17 has no OpenSelectedItem, so this rides on Accept
+                // bubbling to the default button, which is worth pinning rather than assuming.
+                // Anchored on a CHILD, not the document element: the default position is
+                // Below, and a sibling of the root is refused — which would fail this check
+                // for a reason that has nothing to do with Enter, and would leave an error
+                // modal open with no timeout armed to answer it.
+                XmlElement anchorE = null;
+                foreach (XmlNode c in Program.Model.Document.DocumentElement.ChildNodes)
+                    if (c is XmlElement ce) { anchorE = ce; break; }
+                var parentE = (XmlElement)(anchorE?.ParentNode ?? Program.Model.Document.DocumentElement);
+                var beforeEnter = parentE.ChildNodes.Count;
+                ui.Tree.SelectedObject = (XmlNode)anchorE ?? Program.Model.Document.DocumentElement;
+                string enterDiag = "";
+                RunSnippetPanel(app, ui, () =>
+                {
+                    var list = FindById(app.TopRunnable as View, Program.SnippetListId) as ListView;
+                    var focused = (app.TopRunnable as View)?.MostFocused;
+                    enterDiag = $"list={(list == null ? "null" : "found")} listFocused={list?.HasFocus} "
+                              + $"focused={focused?.GetType().Name}/{focused?.Id}";
+                    if (list != null) list.SelectedItem = 0;
+                    bool handled = app.Keyboard.RaiseKeyDownEvent(Key.Enter);
+                    enterDiag += $" enterHandled={handled} depthAfter={ui.ModalDepth}";
+                }, escOut: false);
+                Check(parentE.ChildNodes.Count > beforeEnter,
+                    $"Enter on the snippet list inserts without touching a button [{enterDiag}]");
+                app.Keyboard.RaiseKeyDownEvent(Key.Z.WithCtrl);
+
+                // And the Insert dialog is its old self again: no block group, no snippets.
+                string insert = null;
+                RunInsertDialog(app, ui, () => { app.LayoutAndDraw(true); insert = ScreenText(app); });
+                Check(insert != null && !insert.Contains(SnippetName(0)),
+                    "the Insert dialog carries no snippets");
+                Check(insert != null && insert.Contains("Name (element/attribute/PI):")
+                      && insert.Contains(Program.PosLabels[0]),
+                    "...and is the Insert dialog, with the shared position words");
+
+                // Undo leaves the model dirty even when the content matches, and §15's ^Q has
+                // no timeout armed to answer a prompt — it would hang the run, not fail it.
+                Check(Program.TryOpen(ui, file) == null, "block drill: the document reopens clean");
             }
 
             // --- 15. F9 focuses the menu bar; ^Q requests stop. The document is clean by
@@ -1436,6 +1648,139 @@ namespace Fux
         // How many rows on screen draw a given label. Catches the opposite failure: a node that
         // landed inside a collapsed container is branched correctly but drawn nowhere, so it
         // reads 0. TreeView<T> exposes no enumeration of its branches, hence counting pixels.
+        // Fixtures for the named-block drill. Written to the scratch config directory rather
+        // than shipped as files: the config path is what is under test, so the test has to put
+        // the file there itself.
+        private const string GoodConfig = @"<snippets>
+  <snippet name=""Footnote"">
+    <block kind=""footnote""/>
+  </snippet>
+  <snippet name=""Sidebar"">
+    <sidebar>
+      <title/>
+      <body>here</body>
+    </sidebar>
+  </snippet>
+  <snippet name=""Prefixed"">
+    <z:tag xmlns:z=""uri:block""/>
+  </snippet>
+</snippets>";
+
+        // Two good blocks and two that cannot load, for two different reasons.
+        private const string MixedConfig = @"<snippets>
+  <snippet name=""Keeper""><good/></snippet>
+  <snippet><noname/></snippet>
+  <snippet name=""TooMany""><a/><b/></snippet>
+  <snippet name=""AlsoKeeper""><fine/></snippet>
+</snippets>";
+
+        private static string ChildElementNames(XmlElement e)
+        {
+            var names = new List<string>();
+            foreach (XmlNode c in e.ChildNodes)
+                if (c is XmlElement ce) names.Add(ce.LocalName);
+            return string.Join("|", names);
+        }
+
+        /// <summary>
+        /// Leading spaces on the line holding <paramref name="marker"/>, or -1 if absent. The
+        /// oracle for indentation has to be the written text: a DOM comparison passes just as
+        /// happily on a fragment written flat.
+        /// </summary>
+        private static int IndentOf(string text, string marker)
+        {
+            int i = text.IndexOf(marker, StringComparison.Ordinal);
+            if (i < 0) return -1;
+            int lineStart = text.LastIndexOf('\n', i) + 1;
+            int spaces = 0;
+            for (int p = lineStart; p < i && (text[p] == ' ' || text[p] == '\t'); p++) spaces++;
+            return spaces;
+        }
+
+        /// <summary>
+        /// Open the Insert dialog, run <paramref name="probe"/> inside it, and Esc back out.
+        /// ^N's nested Run blocks the key injector, but it is a real main loop, so a timeout
+        /// armed beforehand fires inside it — the §14a recipe. The escape hatch means a dialog
+        /// that will not close fails the run instead of hanging CI.
+        /// </summary>
+        private static string _lastDialogDiag = "";
+
+        /// <summary>Row label for entry i of the generated long config. Unique per row, so a
+        /// count over the screen is a count of exactly that row.</summary>
+        private static string SnippetName(int i) => $"fuxsnip{i:D2}";
+
+        /// <summary>A config with <paramref name="n"/> blocks — long enough to overflow the
+        /// panel, which is the case the first version of this feature got wrong.</summary>
+        private static string ManyConfig(int n)
+        {
+            var sb = new System.Text.StringBuilder("<snippets>\n");
+            for (int i = 0; i < n; i++)
+                sb.Append($"  <snippet name=\"{SnippetName(i)}\"><b{i:D2}/></snippet>\n");
+            return sb.Append("</snippets>").ToString();
+        }
+
+        /// <summary>
+        /// Open the Snippets panel, run <paramref name="probe"/> inside it, and (unless the
+        /// probe closes it itself) Esc back out. Same recipe as RunInsertDialog.
+        /// </summary>
+        private static bool RunSnippetPanel(Terminal.Gui.App.IApplication app, Program.Ui ui,
+                                            Action probe, bool escOut = true)
+        {
+            int ticks = 0;
+            bool probed = false;
+            var tok = app.AddTimeout(TimeSpan.FromMilliseconds(100), () =>
+            {
+                ticks++;
+                if (!probed && ui.ModalDepth > 0) { probed = true; probe(); }
+                if (escOut) app.Keyboard.RaiseKeyDownEvent(Key.Esc);
+                if (ticks > 20 && !ReferenceEquals(app.TopRunnable, ui.Top))
+                    app.RequestStop(app.TopRunnable);
+                return ticks <= 30;
+            });
+            _lastDialogDiag = $"sel={(ui.Tree.SelectedObject == null ? "null" : "set")} depth={ui.ModalDepth}";
+            Program.StartSnippets(ui);
+            app.RemoveTimeout(tok); // never leave one armed for the next modal — see §14a
+            _lastDialogDiag += $" ticks={ticks} probed={probed}";
+            return probed;
+        }
+
+        private static bool RunInsertDialog(Terminal.Gui.App.IApplication app, Program.Ui ui, Action probe)
+        {
+            int ticks = 0;
+            bool probed = false;
+            var tok = app.AddTimeout(TimeSpan.FromMilliseconds(100), () =>
+            {
+                ticks++;
+                if (!probed && ui.ModalDepth > 0) { probed = true; probe(); }
+                app.Keyboard.RaiseKeyDownEvent(Key.Esc);
+                if (ticks > 20 && !ReferenceEquals(app.TopRunnable, ui.Top))
+                    app.RequestStop(app.TopRunnable);
+                return ticks <= 30;
+            });
+            // Called directly rather than through ^N: what is under test is the dialog the
+            // config produces, and going through the key binding would fold a second question
+            // into every assertion below. StartInsert blocks in RunModal until the timeout
+            // above Escs out of it.
+            _lastDialogDiag = $"sel={(ui.Tree.SelectedObject == null ? "null" : "set")} editing={ui.Editing} depthBefore={ui.ModalDepth}";
+            Program.StartInsert(ui);
+            app.RemoveTimeout(tok); // never leave one armed for the next modal — see §14a
+            _lastDialogDiag += $" ticks={ticks} probed={probed}";
+            return probed;
+        }
+
+        /// <summary>Depth-first search for a view by Id, for reaching into a live modal.</summary>
+        private static View FindById(View root, string id)
+        {
+            if (root == null) return null;
+            if (root.Id == id) return root;
+            foreach (var sub in root.SubViews)
+            {
+                var hit = FindById(sub, id);
+                if (hit != null) return hit;
+            }
+            return null;
+        }
+
         private static int CountOnScreen(Terminal.Gui.App.IApplication app, string label)
         {
             var screen = ScreenText(app);

@@ -324,6 +324,7 @@ namespace Fux
                     new MenuItem("P_aste", "^V", () => PasteValue(ui), new Key()),
                     new MenuItem("Re_name…", "^R", () => StartRename(ui), new Key()),
                     new MenuItem("_Insert…", "^N", () => StartInsert(ui), new Key()),
+                    new MenuItem("_Snippet…", "^B", () => StartSnippets(ui), new Key()),
                     new MenuItem("_Delete", "Del", () => DeleteSelected(ui), new Key()),
                     // Hotkeys here avoid V/n/I/D/U/R, already taken by this menu's other items.
                     new MenuItem("Nudge U_p", "^Shift+Up", () => NudgeSelected(ui, NudgeDir.Up), new Key()),
@@ -494,6 +495,7 @@ namespace Fux
                 else if (!ui.Editing && e.KeyCode == Key.V.WithCtrl.KeyCode) { PasteValue(ui); e.Handled = true; }
                 else if (!ui.Editing && IsNudgeKey(e, out var nudge)) { NudgeSelected(ui, nudge); e.Handled = true; }
                 else if (!ui.Editing && e.KeyCode == Key.O.WithCtrl.KeyCode) { StartOpen(ui); e.Handled = true; }
+                else if (!ui.Editing && e.KeyCode == Key.B.WithCtrl.KeyCode) { StartSnippets(ui); e.Handled = true; }
                 // No Save As chord on purpose: Ctrl+Shift+<letter> is indistinguishable from
                 // Ctrl+<letter> in legacy terminal encoding — both arrive as one control byte
                 // (^S is 0x13) — so a terminal that doesn't speak the kitty protocol or
@@ -842,8 +844,11 @@ namespace Fux
         }
 
         // ^N inserts a new node relative to the selection. The dialog collects kind,
-        // position and name; TryInsert (headless-testable) is the commit path.
-        private static void StartInsert(Ui ui)
+        // position and name; TryInsert (headless-testable) is the commit path. Named blocks
+        // are NOT here — they are their own panel (StartSnippets), because stamping a prepared
+        // structure and naming a new empty node are different operations, and folding them
+        // into one dialog meant a mode switch inside it.
+        internal static void StartInsert(Ui ui)
         {
             if (ui == null || ui.Editing) return;
             var n = ui.Tree.SelectedObject;
@@ -858,7 +863,7 @@ namespace Fux
             var posSel = new OptionSelector
             {
                 X = 26, Y = 2,
-                Labels = new[] { "Child", "Before", "After" },
+                Labels = PosLabels,
                 Value = 0,
             };
             var field = new TextField { X = 1, Y = 1, Width = Dim.Fill(1) };
@@ -875,7 +880,7 @@ namespace Fux
             RunModal(ui, d);
             bool ok = d.Result is 1;
             var kind = (InsertKind)(kindSel.Value ?? 0);
-            var pos = (InsertPos)(posSel.Value ?? 0);
+            var pos = PosAt(posSel.Value ?? 0);
             var name = field.Text;
             d.Dispose();
             if (!ok) return;
@@ -883,6 +888,133 @@ namespace Fux
             var err = TryInsert(ui, n, kind, pos, name);
             if (err != null)
                 ModalQuery(ui, "Insert failed", err, "OK");
+        }
+
+        // How the two panels name the three positions, and what each one means to the DOM.
+        // "Below"/"Above" are what a reader sees in the tree; Before/After are document-order
+        // words that leave you working out which is which. One vocabulary, in both panels.
+        internal static readonly string[] PosLabels = { "Below", "Above", "Child" };
+        private static readonly InsertPos[] PosOrder = { InsertPos.After, InsertPos.Before, InsertPos.Child };
+
+        internal static InsertPos PosAt(int index)
+            => PosOrder[index < 0 || index >= PosOrder.Length ? 0 : index];
+
+        // Identifiers for the Snippets panel's controls, so --drill can reach them inside the
+        // modal where it has no reference to them.
+        internal const string SnippetListId = "fux-snippet-list";
+        internal const string SnippetPosId = "fux-snippet-pos";
+
+        // Session memory. Inserting the same block many times running is the normal case when
+        // marking up a document — twelve verse-lines is twelve of these — so the panel reopens
+        // where it was left rather than at the top of the list every time.
+        private static int _lastSnippet;
+        private static int _lastSnippetPos;
+
+        // ^B: insert one of the user's named blocks. Its own panel, so the list gets the height
+        // a real config needs; the position row is one line rather than a column for the same
+        // reason. The list takes focus on open, so the whole gesture is ^B, arrow, Enter.
+        internal static void StartSnippets(Ui ui)
+        {
+            if (ui == null || ui.Editing) return;
+            var n = ui.Tree.SelectedObject;
+            if (n == null) return;
+
+            var set = Snippets.Load();
+            if (set.Blocks.Count == 0)
+            {
+                // Nothing usable: say where the file goes rather than opening an empty list.
+                ModalQuery(ui, "Snippets",
+                    set.Problem ?? "No snippets are defined.\n\nPut them in " + Snippets.ConfigPath(),
+                    "OK");
+                return;
+            }
+
+            var posSel = new OptionSelector
+            {
+                X = 1, Y = 0,
+                Orientation = Orientation.Horizontal,
+                Labels = PosLabels,
+                Value = _lastSnippetPos,
+                Id = SnippetPosId,
+            };
+
+            var names = new ObservableCollection<string>();
+            foreach (var b in set.Blocks) names.Add(b.Name);
+
+            var list = new ListView
+            {
+                X = 1, Y = 2, Width = Dim.Fill(1), Height = Dim.Fill(2),
+                Id = SnippetListId,
+            };
+            list.SetSource(names);
+            list.HotKeySpecifier = NoHotKey; // the rows are the user's own text
+            list.SelectedItem = _lastSnippet < names.Count ? _lastSnippet : 0;
+
+            // Height from the screen, not from arithmetic about how much room a Dialog has:
+            // guessing that is exactly how the first attempt at this ended up showing two
+            // snippets out of nineteen. Ask for what the terminal has and let the list scroll.
+            int screenH = ui.Top.Viewport.Height;
+            int wanted = names.Count + 6;                 // position row, borders, buttons
+            int height = Math.Max(10, Math.Min(wanted, Math.Max(10, screenH - 4)));
+            int width = 0;
+            foreach (var name in names) width = Math.Max(width, name.Length);
+            width = Math.Max(44, Math.Min(width + 8, Math.Max(44, ui.Top.Viewport.Width - 6)));
+
+            var d = new Dialog
+            {
+                Title = $"Snippet at {GetLabel(n)}",
+                Width = width, Height = height,
+            };
+            d.HotKeySpecifier = NoHotKey; // the title carries a node name — see NoHotKey
+            d.Add(posSel, list);
+            d.AddButton(new Button { Text = "Cancel" }); // Result 0
+            d.AddButton(new Button { Text = "OK" });     // Result 1; last added = default (Enter)
+
+            // Enter on the list commits, so the whole gesture is ^B, arrow, Enter — no Tab,
+            // no button, no mouse. Bound explicitly: 2.4.17 has no OpenSelectedItem event, and
+            // Accept does NOT bubble from a ListView to the dialog's default button (drilled —
+            // the assumption that it did failed the check that pins this).
+            bool accepted = false;
+            list.KeyDown += (s, e) =>
+            {
+                if (e.KeyCode != Key.Enter.KeyCode) return;
+                accepted = true;
+                e.Handled = true;
+                ui.App.RequestStop(d);
+            };
+
+            list.SetFocus();
+            RunModal(ui, d);
+            bool ok = accepted || d.Result is 1;
+            int chosen = list.SelectedItem ?? 0;
+            int posIndex = posSel.Value ?? 0;
+            d.Dispose();
+            if (!ok || chosen < 0 || chosen >= set.Blocks.Count) return;
+
+            _lastSnippet = chosen;
+            _lastSnippetPos = posIndex;
+
+            var err = TryInsertBlock(ui, n, PosAt(posIndex), set.Blocks[chosen]);
+            if (err != null)
+                ModalQuery(ui, "Insert failed", err, "OK");
+        }
+
+        // Push a named-block insert through the undo stack. Separate from TryInsert because a
+        // block carries its own name, kind and attributes — there is nothing to type. Returns
+        // null on success, else the reason.
+        internal static string TryInsertBlock(Ui ui, XmlNode anchor, InsertPos pos, Block block)
+        {
+            InsertNewNode cmd;
+            try
+            {
+                cmd = new InsertNewNode(anchor, pos, block?.Template, _model.Format.IndentChars);
+            }
+            catch (Exception ex) when (ex is XmlException || ex is ArgumentException)
+            {
+                return ex.Message;
+            }
+            ui.Undo.Push(cmd);
+            return null;
         }
 
         // Push an insert through the undo stack. Returns null on success, else the reason.
