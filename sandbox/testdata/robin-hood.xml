@@ -1,0 +1,1664 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- TEST FIXTURE. A trimmed excerpt of a real fread content export: Howard Pyle's
+     "The Merry Adventures of Robin Hood" (1883), public domain, as the work element's
+     own rights-state attribute records.
+
+     Four of the book's twenty-six divisions, lifted verbatim, because this is the shape
+     of document fux is actually used on and the other fixtures are not: ~190 blocks,
+     six attributes apiece, holding escaped HTML as text, plus empty illustration
+     elements. Long enough that the tree scrolls many times over, which is exactly what
+     a one-screen fixture cannot exercise. A clipped list or a lost scroll position is
+     invisible in a document that fits on one screen, and both have shipped.
+
+     export-state no longer describes this file: it is the hash the full export carried,
+     and trimming did not update it. Nothing in fux reads it.
+
+     The full 1 MB book is deliberately not in the repo. Point the drill at a copy for
+     performance work (issue #2): make drill FILE=/path/to/robin-hood.xml
+-->
+<!-- fread content export.
+     Identity attrs (id, anchor-id, ref, source-anchor) are stable internal
+     handles — do not hand-edit them. On a DETACHED work they are how an import
+     recognises what it is looking at: an element keeping its id is matched and
+     updated, an element with NO id attribute is an insert (the import mints the
+     id, ordinal and ref for it), and an element deleted from this file is a
+     delete. Existing anchors are never renumbered, so refs on a detached work
+     are addresses, not a sort order — document order is what you see here.
+     On a TRACKING work this file is read-only reference: `kind` is the one
+     attribute reapplicable durably, via `ingest-override set`.
+     A block's content is its AUTHORED form (content_block.text_html), so inline
+     markup arrives escaped (&lt;i&gt;). The plain-text form is derived from it on
+     import and is deliberately not exported, so the two cannot disagree. A block
+     marked text-form="plain" has no HTML form at all; leave the marker alone.
+     <illustration> elements mark where an image attaches — nested in the block
+     (or at the top of the division) whose anchor-id they match. source-ref is the
+     stable key for `ingest-override role`; role is the role in effect. A
+     role-pending attr means an override recorded a different role that has not
+     taken effect yet (roles apply at the next ingest); `fread-admin work detach`
+     bakes it in, since detaching ends re-ingest for good.
+     A division with rendered="false" is suppressed from the reader by default
+     (an embedded table of contents, redundant with the navigation drawer); it
+     stays in the store. See FreadClassicIngestionTool.md §8.8. -->
+<work xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="fread-content-export-3.xsd" export-schema="fread-content-export/3" export-state="sha256:a89a8aa7f4d7e9e91292ac881da7b660141619e4e99872efdfc9eba46079c2b7" id="019f6db7-18fd-7213-a1d7-6e0113dc53ed" title="The Merry Adventures of Robin Hood" attribution="Pyle, Howard" rights-state="public-domain">
+  <division id="21dde553-d22b-4a3e-8cdc-fbf19e18eb81" ref="front-matter" kind="title-page" ordinal="1" depth="0" source-anchor="front-matter" anchor-id="7037ce02-3cdc-4b66-88ac-0590393c7f76">
+    <block id="178fdc27-4310-496e-98f8-bdd93cde8104" ref="front-matter.p1" kind="heading" ordinal="1" anchor-id="dfb1e803-946e-4bda-944b-1baddd12e8da" source-offset="1">&lt;h1&gt;
+    THE MERRY ADVENTURES OF ROBIN HOOD
+&lt;/h1&gt;</block>
+    <block id="aef41c23-01bf-4a3d-bfd7-cfad4786864b" ref="front-matter.p2" kind="heading" ordinal="2" anchor-id="4be87c71-8219-43cf-8b39-2a2faf649724" source-offset="2">&lt;h2&gt;
+by Howard Pyle
+&lt;/h2&gt;</block>
+  </division>
+  <division id="8015e84f-e1f9-41a9-ae7b-249b979ccebf" ref="id_2H_4_0004" kind="chapter" ordinal="6" depth="0" title="The Shooting Match at Nottingham Town" source-anchor="id_2H_4_0004" anchor-id="93c190c8-f8e7-41c9-a2d5-4fd57ff4f7a4">
+    <illustration item-id="01a012a0-d3ff-7474-a0c3-6fd4dc2c3185" blob-id="01a012a0-d40e-71b9-8248-782f08db2065" source-ref="images/crops/shooting_frontplate.jpg" anchor-id="93c190c8-f8e7-41c9-a2d5-4fd57ff4f7a4" role="plate" print-placement="facing-chapter-open" alt="The Sheriff of Nottingham cometh before the King at London"></illustration>
+    <illustration item-id="01a012a0-d3ff-7478-9831-14b4a4408e08" blob-id="01a012a0-d46a-73e8-9d8f-872310e1613b" source-ref="images/crops/shooting_headpiece.jpg" anchor-id="93c190c8-f8e7-41c9-a2d5-4fd57ff4f7a4" role="headpiece"></illustration>
+    <block id="f3f172a8-e8dc-47b8-a59f-46ef75fcda8e" ref="id_2H_4_0004.p1" kind="paragraph" ordinal="1" anchor-id="9527e581-d041-45df-a147-3b57b84b9646" source-offset="1">
+Then the Sheriff was very wroth because of this failure to take jolly
+Robin, for it came to his ears, as ill news always does, that the people
+laughed at him and made a jest of his thinking to serve a warrant upon
+such a one as the bold outlaw. And a man hates nothing so much as
+being made a jest of; so he said: "Our gracious lord and sovereign King
+himself shall know of this, and how his laws are perverted and despised
+by this band of rebel outlaws. As for yon traitor Tinker, him will
+I hang, if I catch him, upon the very highest gallows tree in all
+Nottinghamshire."
+</block>
+    <block id="72f8cc98-905e-40b3-bfbf-f1d73f73441f" ref="id_2H_4_0004.p2" kind="paragraph" ordinal="2" anchor-id="da6dc13c-313c-4609-9210-352d6dc7b15a" source-offset="2">
+Then he bade all his servants and retainers to make ready to go to
+London Town, to see and speak with the King.
+</block>
+    <block id="2b437d23-b5dc-451e-8fd6-117eb55240d7" ref="id_2H_4_0004.p3" kind="paragraph" ordinal="3" anchor-id="00832e06-9eb5-4d95-b771-a8c90b446860" source-offset="3">
+At this there was bustling at the Sheriff's castle, and men ran hither
+and thither upon this business and upon that, while the forge fires of
+Nottingham glowed red far into the night like twinkling stars, for
+all the smiths of the town were busy making or mending armor for the
+Sheriff's troop of escort. For two days this labor lasted, then, on
+the third, all was ready for the journey. So forth they started in the
+bright sunlight, from Nottingham Town to Fosse Way and thence to Watling
+Street; and so they journeyed for two days, until they saw at last the
+spires and towers of great London Town; and many folks stopped, as
+they journeyed along, and gazed at the show they made riding along the
+highways with their flashing armor and gay plumes and trappings.
+</block>
+    <block id="97eec4ef-b77e-4849-bc8d-a167894fccea" ref="id_2H_4_0004.p4" kind="paragraph" ordinal="4" anchor-id="7bcc4753-1bde-498e-b0c3-8c2b068289e8" source-offset="4">
+In London King Henry and his fair Queen Eleanor held their court, gay
+with ladies in silks and satins and velvets and cloth of gold, and also
+brave knights and gallant courtiers.
+</block>
+    <block id="be4582ab-56f4-4bcc-a051-a4ba65111623" ref="id_2H_4_0004.p5" kind="paragraph" ordinal="5" anchor-id="c1034aa4-ef99-46fe-b24c-6781fbe9b8b6" source-offset="5">
+Thither came the Sheriff and was shown into the King's presence.
+</block>
+    <block id="a7d1b7d7-0810-4066-9ce5-b363e485d7b2" ref="id_2H_4_0004.p6" kind="paragraph" ordinal="6" anchor-id="db9cbed7-ba51-4e03-98fa-07e95f94541d" source-offset="6">
+"A boon, a boon," quoth he, as he knelt upon the ground.
+</block>
+    <block id="56dd3241-574e-4142-aba7-c2ad2359965d" ref="id_2H_4_0004.p7" kind="paragraph" ordinal="7" anchor-id="c819d506-22e5-4d19-a432-0fa64c9f4481" source-offset="7">
+"Now what wouldst thou have?" said the King. "Let us hear what may be
+thy desires."
+</block>
+    <block id="acfc6393-3f31-45a4-9183-74064c0bc0bc" ref="id_2H_4_0004.p8" kind="paragraph" ordinal="8" anchor-id="17f2873d-4110-416b-902b-4e13da5377cb" source-offset="8">
+"O good my Lord and Sovereign," spake the Sheriff, "in Sherwood Forest
+in our own good shire of Nottingham, liveth a bold outlaw whose name is
+Robin Hood."
+</block>
+    <block id="b478bcff-57a0-49e6-8c6e-d9c9f0c26260" ref="id_2H_4_0004.p9" kind="paragraph" ordinal="9" anchor-id="78f53b3d-6696-43c2-bea6-bd9d4f9c6520" source-offset="9">
+"In good sooth," said the King, "his doings have reached even our own
+royal ears. He is a saucy, rebellious varlet, yet, I am fain to own, a
+right merry soul withal."
+</block>
+    <block id="d4158899-2345-4d72-875d-0af27265fb27" ref="id_2H_4_0004.p10" kind="paragraph" ordinal="10" anchor-id="117d260b-6e01-41e2-9ff6-ced3eda5a4ea" source-offset="10">
+"But hearken, O my most gracious Sovereign," said the Sheriff. "I sent
+a warrant to him with thine own royal seal attached, by a right lusty
+knave, but he beat the messenger and stole the warrant. And he killeth
+thy deer and robbeth thine own liege subjects even upon the great
+highways."
+</block>
+    <block id="05228094-08e7-44a2-b560-10d3b6f56b72" ref="id_2H_4_0004.p11" kind="paragraph" ordinal="11" anchor-id="244d726c-b7ca-4328-9819-d7fb34a411b7" source-offset="11">
+"Why, how now," quoth the King wrathfully. "What wouldst thou have
+me do? Comest thou not to me with a great array of men-at-arms and
+retainers, and yet art not able to take a single band of lusty knaves
+without armor on breast, in thine own county! What wouldst thou have
+me do? Art thou not my Sheriff? Are not my laws in force in
+Nottinghamshire? Canst thou not take thine own course against those that
+break the laws or do any injury to thee or thine? Go, get thee gone, and
+think well; devise some plan of thine own, but trouble me no further.
+But look well to it, Master Sheriff, for I will have my laws obeyed by
+all men within my kingdom, and if thou art not able to enforce them thou
+art no sheriff for me. So look well to thyself, I say, or ill may befall
+thee as well as all the thieving knaves in Nottinghamshire. When the
+flood cometh it sweepeth away grain as well as chaff."
+</block>
+    <block id="9beb4ea1-45f1-4ac8-b5da-5027f3e0a6bd" ref="id_2H_4_0004.p12" kind="paragraph" ordinal="12" anchor-id="6ab43b0a-b430-452e-a34c-850e0098b1f0" source-offset="12">
+Then the Sheriff turned away with a sore and troubled heart, and sadly
+he rued his fine show of retainers, for he saw that the King was angry
+because he had so many men about him and yet could not enforce the
+laws. So, as they all rode slowly back to Nottingham, the Sheriff was
+thoughtful and full of care. Not a word did he speak to anyone, and no
+one of his men spoke to him, but all the time he was busy devising some
+plan to take Robin Hood.
+</block>
+    <block id="49ff6c69-7215-497e-9a58-4cfda79c2b81" ref="id_2H_4_0004.p13" kind="paragraph" ordinal="13" anchor-id="86650ca1-581e-4196-bb8a-61ffb396a0b4" source-offset="13">
+"Aha!" cried he suddenly, smiting his hand upon his thigh "I have it
+now! Ride on, my merry men all, and let us get back to Nottingham Town
+as speedily as we may. And mark well my words: before a fortnight
+is passed, that evil knave Robin Hood will be safely clapped into
+Nottingham gaol."
+</block>
+    <block id="466c39ff-12b9-4a5a-964d-236ae5acff8e" ref="id_2H_4_0004.p14" kind="paragraph" ordinal="14" anchor-id="4802bf9d-5bb0-48fe-86d1-6bfb40ff522b" source-offset="14">
+But what was the Sheriff's plan?
+</block>
+    <block id="c07f7897-7169-4724-afd7-7a10a5f1e9db" ref="id_2H_4_0004.p15" kind="paragraph" ordinal="15" anchor-id="21e44ab1-b939-49b0-849b-37da8b5a27d4" source-offset="15">
+As a usurer takes each one of a bag of silver angels, feeling each coin
+to find whether it be clipped or not, so the Sheriff, as all rode slowly
+and sadly back toward Nottingham, took up thought after thought in turn,
+feeling around the edges of each but finding in every one some flaw.
+At last he thought of the daring soul of jolly Robin and how, as he the
+Sheriff knew, he often came even within the walls of Nottingham.
+</block>
+    <block id="014af98d-7db5-4bcd-82bc-f626a3fb126e" ref="id_2H_4_0004.p16" kind="paragraph" ordinal="16" anchor-id="c9d488dd-2ff3-4cf1-8c36-519506b91d29" source-offset="16">
+"Now," thought the Sheriff, "could I but persuade Robin nigh to
+Nottingham Town so that I could find him, I warrant I would lay hands
+upon him so stoutly that he would never get away again." Then of a
+sudden it came to him like a flash that were he to proclaim a great
+shooting match and offer some grand prize, Robin Hood might be
+overpersuaded by his spirit to come to the butts; and it was this
+thought which caused him to cry "Aha!" and smite his palm upon his
+thigh.
+</block>
+    <block id="5c8a3180-6ae6-4950-b0a8-6dc2d4565da3" ref="id_2H_4_0004.p17" kind="paragraph" ordinal="17" anchor-id="38e326a4-fd52-477f-a85f-eb7c36ee7a15" source-offset="17">
+So, as soon as he had returned safely to Nottingham, he sent messengers
+north and south, and east and west, to proclaim through town, hamlet,
+and countryside, this grand shooting match, and everyone was bidden that
+could draw a longbow, and the prize was to be an arrow of pure beaten
+gold.
+</block>
+    <block id="98f704e3-7831-43ab-b784-b035112bbd58" ref="id_2H_4_0004.p18" kind="paragraph" ordinal="18" anchor-id="9873551f-2b79-4b56-a6ce-440061f48123" source-offset="18">
+When Robin Hood first heard the news of this he was in Lincoln Town, and
+hastening back to Sherwood Forest he soon called all his merry men about
+him and spoke to them thus:
+</block>
+    <block id="18017be4-4c21-4f5a-a9ab-cf712b235702" ref="id_2H_4_0004.p19" kind="paragraph" ordinal="19" anchor-id="3029c799-8526-4951-b292-a20ee774cc66" source-offset="19">
+"Now hearken, my merry men all, to the news that I have brought from
+Lincoln Town today. Our friend the Sheriff of Nottingham hath proclaimed
+a shooting match, and hath sent messengers to tell of it through all the
+countryside, and the prize is to be a bright golden arrow. Now I fain
+would have one of us win it, both because of the fairness of the prize
+and because our sweet friend the Sheriff hath offered it. So we will
+take our bows and shafts and go there to shoot, for I know right well
+that merriment will be a-going. What say ye, lads?"
+</block>
+    <block id="c8a40a51-476e-4eb4-b092-2827d18e4d6c" ref="id_2H_4_0004.p20" kind="paragraph" ordinal="20" anchor-id="1c8f0127-5c11-4f90-9864-9f0620b4e697" source-offset="20">
+Then young David of Doncaster spoke up and said, "Now listen, I pray
+thee, good master, unto what I say. I have come straight from our friend
+Eadom o' the Blue Boar, and there I heard the full news of this same
+match. But, master, I know from him, and he got it from the Sheriff's
+man Ralph o' the Scar, that this same knavish Sheriff hath but laid a
+trap for thee in this shooting match and wishes nothing so much as to
+see thee there. So go not, good master, for I know right well he doth
+seek to beguile thee, but stay within the greenwood lest we all meet
+dole and woe."
+</block>
+    <block id="67097360-e0ee-42f3-94d5-d81762f154d8" ref="id_2H_4_0004.p21" kind="paragraph" ordinal="21" anchor-id="d9a93f6c-0836-49e6-ba90-91a5400652d9" source-offset="21">
+"Now," quoth Robin, "thou art a wise lad and keepest thine ears open and
+thy mouth shut, as becometh a wise and crafty woodsman. But shall we let
+it be said that the Sheriff of Nottingham did cow bold Robin Hood and
+sevenscore as fair archers as are in all merry England? Nay, good David,
+what thou tellest me maketh me to desire the prize even more than I else
+should do. But what sayeth our good gossip Swanthold? Is it not 'A hasty
+man burneth his mouth, and the fool that keepeth his eyes shut falleth
+into the pit'? Thus he says, truly, therefore we must meet guile with
+guile. Now some of you clothe yourselves as curtal friars, and some as
+rustic peasants, and some as tinkers, or as beggars, but see that each
+man taketh a good bow or broadsword, in case need should arise. As for
+myself, I will shoot for this same golden arrow, and should I win it, we
+will hang it to the branches of our good greenwood tree for the joy of
+all the band. How like you the plan, my merry men all?"
+</block>
+    <block id="f0304daa-149f-4cfb-8bdd-4c7b5a3bfc4d" ref="id_2H_4_0004.p22" kind="paragraph" ordinal="22" anchor-id="62fc1a2d-e009-441f-abd8-0003fd177b90" source-offset="22">
+Then "Good, good!" cried all the band right heartily.
+</block>
+    <block id="ef33c27b-e4b2-48c5-86fe-183231013b65" ref="id_2H_4_0004.p23" kind="paragraph" ordinal="23" anchor-id="6b6c2bc7-f8f3-4a67-ad29-b8bd394bfca4" source-offset="23">
+A fair sight was Nottingham Town on the day of the shooting match. All
+along upon the green meadow beneath the town wall stretched a row of
+benches, one above the other, which were for knight and lady, squire and
+dame, and rich burghers and their wives; for none but those of rank and
+quality were to sit there. At the end of the range, near the target, was
+a raised seat bedecked with ribbons and scarfs and garlands of flowers,
+for the Sheriff of Nottingham and his dame. The range was twoscore
+paces broad. At one end stood the target, at the other a tent of
+striped canvas, from the pole of which fluttered many-colored flags and
+streamers. In this booth were casks of ale, free to be broached by any
+of the archers who might wish to quench their thirst.
+</block>
+    <block id="86add5b3-4032-4be3-a02c-28cc9d033af6" ref="id_2H_4_0004.p24" kind="paragraph" ordinal="24" anchor-id="cb879b52-b70e-439d-961a-d322cdf1f062" source-offset="24">
+Across the range from where the seats for the better folk were raised
+was a railing to keep the poorer people from crowding in front of the
+target. Already, while it was early, the benches were beginning to fill
+with people of quality, who kept constantly arriving in little carts or
+upon palfreys that curveted gaily to the merry tinkle of silver bells at
+bridle reins. With these came also the poorer folk, who sat or lay upon
+the green grass near the railing that kept them from off the range.
+In the great tent the archers were gathering by twos and threes; some
+talking loudly of the fair shots each man had made in his day; some
+looking well to their bows, drawing a string betwixt the fingers to see
+that there was no fray upon it, or inspecting arrows, shutting one eye
+and peering down a shaft to see that it was not warped, but straight and
+true, for neither bow nor shaft should fail at such a time and for such
+a prize. And never was such a company of yeomen as were gathered at
+Nottingham Town that day, for the very best archers of merry England
+had come to this shooting match. There was Gill o' the Red Cap, the
+Sheriff's own head archer, and Diccon Cruikshank of Lincoln Town, and
+Adam o' the Dell, a man of Tamworth, of threescore years and more, yet
+hale and lusty still, who in his time had shot in the famous match
+at Woodstock, and had there beaten that renowned archer, Clym o' the
+Clough. And many more famous men of the longbow were there, whose names
+have been handed down to us in goodly ballads of the olden time.
+</block>
+    <block id="50acbc63-c4f1-496e-94cc-fa0b1fce3eaa" ref="id_2H_4_0004.p25" kind="paragraph" ordinal="25" anchor-id="be4b58cb-8898-407f-813c-18db5a1b28c9" source-offset="25">
+But now all the benches were filled with guests, lord and lady, burgher
+and dame, when at last the Sheriff himself came with his lady, he riding
+with stately mien upon his milk-white horse and she upon her brown
+filly. Upon his head he wore a purple velvet cap, and purple velvet was
+his robe, all trimmed about with rich ermine; his jerkin and hose were
+of sea-green silk, and his shoes of black velvet, the pointed toes
+fastened to his garters with golden chains. A golden chain hung about
+his neck, and at his collar was a great carbuncle set in red gold. His
+lady was dressed in blue velvet, all trimmed with swan's down. So they
+made a gallant sight as they rode along side by side, and all the people
+shouted from where they crowded across the space from the gentlefolk;
+so the Sheriff and his lady came to their place, where men-at-arms, with
+hauberk and spear, stood about, waiting for them.
+</block>
+    <block id="248cd43e-937e-4f10-86f5-2396326296c3" ref="id_2H_4_0004.p26" kind="paragraph" ordinal="26" anchor-id="81329613-fb80-4a42-a8c6-b3d57ae4a809" source-offset="26">
+Then when the Sheriff and his dame had sat down, he bade his herald
+wind upon his silver horn; who thereupon sounded three blasts that
+came echoing cheerily back from the gray walls of Nottingham. Then the
+archers stepped forth to their places, while all the folks shouted with
+a mighty voice, each man calling upon his favorite yeoman. "Red Cap!"
+cried some; "Cruikshank!" cried others; "Hey for William o' Leslie!"
+shouted others yet again; while ladies waved silken scarfs to urge each
+yeoman to do his best.
+</block>
+    <block id="f2684fda-806e-42c1-a6a6-abc3a88c0019" ref="id_2H_4_0004.p27" kind="paragraph" ordinal="27" anchor-id="daf2c63a-f0ea-49ac-a8b7-42eea451a953" source-offset="27">
+Then the herald stood forth and loudly proclaimed the rules of the game
+as follows:
+</block>
+    <block id="95c4dca2-2d23-4b63-a076-dfccf1f8fc99" ref="id_2H_4_0004.p28" kind="paragraph" ordinal="28" anchor-id="c6b2e8c6-2212-4735-ac64-d07a4f3d6b51" source-offset="28">
+"Shoot each man from yon mark, which is sevenscore yards and ten from
+the target. One arrow shooteth each man first, and from all the archers
+shall the ten that shooteth the fairest shafts be chosen for to shoot
+again. Two arrows shooteth each man of these ten, then shall the three
+that shoot the fairest shafts be chosen for to shoot again. Three arrows
+shooteth each man of those three, and to him that shooteth the fairest
+shafts shall the prize be given."
+</block>
+    <block id="eaa33590-3ac0-442d-850d-55b89c15dfee" ref="id_2H_4_0004.p29" kind="paragraph" ordinal="29" anchor-id="ea5b2614-52f5-447e-9565-5b5ed5a8e298" source-offset="29">
+Then the Sheriff leaned forward, looking keenly among the press of
+archers to find whether Robin Hood was among them; but no one was
+there clad in Lincoln green, such as was worn by Robin and his band.
+"Nevertheless," said the Sheriff to himself, "he may still be there, and
+I miss him among the crowd of other men. But let me see when but ten men
+shoot, for I wot he will be among the ten, or I know him not."
+</block>
+    <block id="9a118814-b14d-482c-855f-cea0658c0f33" ref="id_2H_4_0004.p30" kind="paragraph" ordinal="30" anchor-id="8a11d45f-6f0f-4de9-b16b-7d7c0120e639" source-offset="30">
+And now the archers shot, each man in turn, and the good folk never saw
+such archery as was done that day. Six arrows were within the clout,
+four within the black, and only two smote the outer ring; so that when
+the last arrow sped and struck the target, all the people shouted aloud,
+for it was noble shooting.
+</block>
+    <block id="5a4d3b18-6ff8-43d3-9e34-29c462f165c8" ref="id_2H_4_0004.p31" kind="paragraph" ordinal="31" anchor-id="3ba63e38-bb2e-4a2a-985f-7ce24e6ca780" source-offset="31">
+And now but ten men were left of all those that had shot before, and
+of these ten, six were famous throughout the land, and most of the folk
+gathered there knew them. These six men were Gilbert o' the Red Cap,
+Adam o' the Dell, Diccon Cruikshank, William o' Leslie, Hubert o' Cloud,
+and Swithin o' Hertford. Two others were yeomen of merry Yorkshire,
+another was a tall stranger in blue, who said he came from London Town,
+and the last was a tattered stranger in scarlet, who wore a patch over
+one eye.
+</block>
+    <block id="e37996c8-0aad-483f-ab86-4819b0b77cc0" ref="id_2H_4_0004.p32" kind="paragraph" ordinal="32" anchor-id="b232ba76-c430-47fa-8aab-1eb044f285bd" source-offset="32">
+"Now," quoth the Sheriff to a man-at-arms who stood near him, "seest
+thou Robin Hood among those ten?"
+</block>
+    <block id="f1a4c5fc-fa61-40d9-9d03-ab7d049296a7" ref="id_2H_4_0004.p33" kind="paragraph" ordinal="33" anchor-id="bb31a527-9d2c-45ba-ade9-bf3368988955" source-offset="33">
+"Nay, that do I not, Your Worship," answered the man. "Six of them I
+know right well. Of those Yorkshire yeomen, one is too tall and the
+other too short for that bold knave. Robin's beard is as yellow as gold,
+while yon tattered beggar in scarlet hath a beard of brown, besides
+being blind of one eye. As for the stranger in blue, Robin's shoulders,
+I ween, are three inches broader than his."
+</block>
+    <block id="9ea619ad-d92e-412e-903e-20946c89824e" ref="id_2H_4_0004.p34" kind="paragraph" ordinal="34" anchor-id="4da76804-ce73-4f76-be65-f03b2088a4b1" source-offset="34">
+"Then," quoth the Sheriff, smiting his thigh angrily, "yon knave is a
+coward as well as a rogue, and dares not show his face among good men
+and true."
+</block>
+    <block id="7d534856-6ae9-498f-b0dd-536b7f14b9a3" ref="id_2H_4_0004.p35" kind="paragraph" ordinal="35" anchor-id="3a1ed8be-864f-4c9a-848d-12b946bb75c2" source-offset="35">
+Then, after they had rested a short time, those ten stout men stepped
+forth to shoot again. Each man shot two arrows, and as they shot, not
+a word was spoken, but all the crowd watched with scarce a breath of
+sound; but when the last had shot his arrow another great shout arose,
+while many cast their caps aloft for joy of such marvelous shooting.
+</block>
+    <block id="dad9d642-213e-438e-a170-3d652ace6da3" ref="id_2H_4_0004.p36" kind="paragraph" ordinal="36" anchor-id="ec819cfe-b61d-425b-9d22-2d0c0d5e5c99" source-offset="36">
+"Now by our gracious Lady fair," quoth old Sir Amyas o' the Dell, who,
+bowed with fourscore years and more, sat near the Sheriff, "ne'er saw
+I such archery in all my life before, yet have I seen the best hands at
+the longbow for threescore years and more."
+</block>
+    <block id="7b45ad6d-cf20-471e-8769-e342e57a65e7" ref="id_2H_4_0004.p37" kind="paragraph" ordinal="37" anchor-id="8ec96ecc-2015-45a3-bc48-1dd1fd5dda3b" source-offset="37">
+And now but three men were left of all those that had shot before. One
+was Gill o' the Red Cap, one the tattered stranger in scarlet, and one
+Adam o' the Dell of Tamworth Town. Then all the people called aloud,
+some crying, "Ho for Gilbert o' the Red Cap!" and some, "Hey for stout
+Adam o' Tamworth!" But not a single man in the crowd called upon the
+stranger in scarlet.
+</block>
+    <block id="3ecf3cf3-f94a-4ba2-b4cc-6644cf78bd05" ref="id_2H_4_0004.p38" kind="paragraph" ordinal="38" anchor-id="0dfc58be-32a1-4553-ba73-a7d8ac83ed0a" source-offset="38">
+"Now, shoot thou well, Gilbert," cried the Sheriff, "and if thine be the
+best shaft, fivescore broad silver pennies will I give to thee beside
+the prize."
+</block>
+    <block id="265247a6-c52e-46c3-90ec-11fc9f8fbec9" ref="id_2H_4_0004.p39" kind="paragraph" ordinal="39" anchor-id="4fa7d79f-d3e7-496f-aa71-bce5eb4f8830" source-offset="39">
+"Truly I will do my best," quoth Gilbert right sturdily. "A man cannot
+do aught but his best, but that will I strive to do this day." So
+saying, he drew forth a fair smooth arrow with a broad feather and
+fitted it deftly to the string, then drawing his bow with care he
+sped the shaft. Straight flew the arrow and lit fairly in the clout, a
+finger's-breadth from the center. "A Gilbert, a Gilbert!" shouted all
+the crowd; and, "Now, by my faith," cried the Sheriff, smiting his hands
+together, "that is a shrewd shot."
+</block>
+    <block id="380f23a1-c21c-442a-9941-0d07013de2a9" ref="id_2H_4_0004.p40" kind="paragraph" ordinal="40" anchor-id="dc956215-a3a0-4f4e-97ab-c4ddad8f74bc" source-offset="40">
+Then the tattered stranger stepped forth, and all the people laughed as
+they saw a yellow patch that showed beneath his arm when he raised his
+elbow to shoot, and also to see him aim with but one eye. He drew the
+good yew bow quickly, and quickly loosed a shaft; so short was the time
+that no man could draw a breath betwixt the drawing and the shooting;
+yet his arrow lodged nearer the center than the other by twice the
+length of a barleycorn.
+</block>
+    <block id="ec72d4ba-0ec8-46e8-ba83-6d6097bdbd8e" ref="id_2H_4_0004.p41" kind="paragraph" ordinal="41" anchor-id="ba485e29-c1ea-4e8e-b55d-be5693de0c87" source-offset="41">
+"Now by all the saints in Paradise!" cried the Sheriff, "that is a
+lovely shaft in very truth!"
+</block>
+    <block id="eaf0f8c4-42ad-48f9-975f-5920af17eac3" ref="id_2H_4_0004.p42" kind="paragraph" ordinal="42" anchor-id="5497cbf9-6516-4b20-9b5c-c8060aeba635" source-offset="42">
+Then Adam o' the Dell shot, carefully and cautiously, and his arrow
+lodged close beside the stranger's. Then after a short space they all
+three shot again, and once more each arrow lodged within the clout, but
+this time Adam o' the Dell's was farthest from the center, and again the
+tattered stranger's shot was the best. Then, after another time of rest,
+they all shot for the third time. This time Gilbert took great heed to
+his aim, keenly measuring the distance and shooting with shrewdest care.
+Straight flew the arrow, and all shouted till the very flags that
+waved in the breeze shook with the sound, and the rooks and daws flew
+clamoring about the roofs of the old gray tower, for the shaft had
+lodged close beside the spot that marked the very center.
+</block>
+    <block id="0cee14dd-2aea-4d5f-97de-30189bbd14fd" ref="id_2H_4_0004.p43" kind="paragraph" ordinal="43" anchor-id="304c1a67-d96a-4d86-973c-b485a9850c1a" source-offset="43">
+"Well done, Gilbert!" cried the Sheriff right joyously. "Fain am I
+to believe the prize is thine, and right fairly won. Now, thou ragged
+knave, let me see thee shoot a better shaft than that."
+</block>
+    <block id="e3bd1cda-3899-45ef-940e-1d1331d323d4" ref="id_2H_4_0004.p44" kind="paragraph" ordinal="44" anchor-id="7b5e47d1-4b7d-46e3-9779-1af3564b5650" source-offset="44">
+Nought spake the stranger but took his place, while all was hushed, and
+no one spoke or even seemed to breathe, so great was the silence
+for wonder what he would do. Meanwhile, also, quite still stood the
+stranger, holding his bow in his hand, while one could count five; then
+he drew his trusty yew, holding it drawn but a moment, then loosed the
+string. Straight flew the arrow, and so true that it smote a gray goose
+feather from off Gilbert's shaft, which fell fluttering through the
+sunlit air as the stranger's arrow lodged close beside his of the Red
+Cap, and in the very center. No one spoke a word for a while and no one
+shouted, but each man looked into his neighbor's face amazedly.
+</block>
+    <block id="467de1cb-f2f0-4c14-a118-2fe8d3c044bf" ref="id_2H_4_0004.p45" kind="paragraph" ordinal="45" anchor-id="2aae0e61-4ff5-42db-9734-625c649d643d" source-offset="45">
+"Nay," quoth old Adam o' the Dell presently, drawing a long breath
+and shaking his head as he spoke, "twoscore years and more have I shot
+shaft, and maybe not all times bad, but I shoot no more this day, for
+no man can match with yon stranger, whosoe'er he may be." Then he
+thrust his shaft into his quiver, rattling, and unstrung his bow without
+another word.
+</block>
+    <block id="1ce50f89-cbd0-453e-bec1-17c790ed14cb" ref="id_2H_4_0004.p46" kind="paragraph" ordinal="46" anchor-id="f0ca82bc-68c0-4d50-8df9-fc3298ee62e6" source-offset="46">
+Then the Sheriff came down from his dais and drew near, in all his silks
+and velvets, to where the tattered stranger stood leaning upon his
+stout bow, while the good folk crowded around to see the man who shot so
+wondrously well. "Here, good fellow," quoth the Sheriff, "take thou
+the prize, and well and fairly hast thou won it, I bow. What may be thy
+name, and whence comest thou?"
+</block>
+    <block id="e70350b2-a80d-4442-8fb6-89dc4ea37523" ref="id_2H_4_0004.p47" kind="paragraph" ordinal="47" anchor-id="0142c12b-c695-4189-9a7b-d5a5f97290df" source-offset="47">
+"Men do call me Jock o' Teviotdale, and thence am I come," said the
+stranger.
+</block>
+    <block id="c86ecef2-37ac-4bc9-8e3b-dccfaa9f3186" ref="id_2H_4_0004.p48" kind="paragraph" ordinal="48" anchor-id="39c5ce57-e521-4b64-9b12-a4f440b845c3" source-offset="48">
+"Then, by Our Lady, Jock, thou art the fairest archer that e'er mine
+eyes beheld, and if thou wilt join my service I will clothe thee with a
+better coat than that thou hast upon thy back; thou shalt eat and drink
+of the best, and at every Christmastide fourscore marks shall be thy
+wage. I trow thou drawest better bow than that same coward knave Robin
+Hood, that dared not show his face here this day. Say, good fellow, wilt
+thou join my service?"
+</block>
+    <block id="ee0ba448-be38-4989-8a26-d208cfb8d054" ref="id_2H_4_0004.p49" kind="paragraph" ordinal="49" anchor-id="3bae2d8e-7f6a-46a0-9584-fa4de79020e3" source-offset="49">
+"Nay, that will I not," quoth the stranger roughly. "I will be mine own,
+and no man in all merry England shall be my master."
+</block>
+    <block id="97ac35b6-f82f-465c-819e-63f2d3b77724" ref="id_2H_4_0004.p50" kind="paragraph" ordinal="50" anchor-id="f0daff75-eac5-492e-9f4b-4b93044b0cf3" source-offset="50">
+"Then get thee gone, and a murrain seize thee!" cried the Sheriff, and
+his voice trembled with anger. "And by my faith and troth, I have a good
+part of a mind to have thee beaten for thine insolence!" Then he turned
+upon his heel and strode away.
+</block>
+    <block id="c3c4ef03-7e67-487c-90b7-eec6e62b3446" ref="id_2H_4_0004.p51" kind="paragraph" ordinal="51" anchor-id="2f38709d-4f50-4df7-b6f5-ee9701fd9deb" source-offset="51">
+It was a right motley company that gathered about the noble greenwood
+tree in Sherwood's depths that same day. A score and more of barefoot
+friars were there, and some that looked like tinkers, and some that
+seemed to be sturdy beggars and rustic hinds; and seated upon a mossy
+couch was one all clad in tattered scarlet, with a patch over one eye;
+and in his hand he held the golden arrow that was the prize of the great
+shooting match. Then, amidst a noise of talking and laughter, he took
+the patch from off his eye and stripped away the scarlet rags from off
+his body and showed himself all clothed in fair Lincoln green; and
+quoth he, "Easy come these things away, but walnut stain cometh not so
+speedily from yellow hair." Then all laughed louder than before, for it
+was Robin Hood himself that had won the prize from the Sheriff's very
+hands.
+</block>
+    <block id="c5f5e538-db45-4968-a254-b65698ea611b" ref="id_2H_4_0004.p52" kind="paragraph" ordinal="52" anchor-id="5a83e371-e83b-4475-961e-2961b28416ff" source-offset="52">
+Then all sat down to the woodland feast and talked among themselves
+of the merry jest that had been played upon the Sheriff, and of the
+adventures that had befallen each member of the band in his disguise.
+But when the feast was done, Robin Hood took Little John apart and said,
+"Truly am I vexed in my blood, for I heard the Sheriff say today, 'Thou
+shootest better than that coward knave Robin Hood, that dared not show
+his face here this day.' I would fain let him know who it was who won
+the golden arrow from out his hand, and also that I am no coward such as
+he takes me to be."
+</block>
+    <block id="03564b8a-b96d-4bf6-8e8b-f11eb02977e0" ref="id_2H_4_0004.p53" kind="paragraph" ordinal="53" anchor-id="86fe61ff-482f-4074-b9f4-9ccab4bf5f3f" source-offset="53">
+Then Little John said, "Good master, take thou me and Will Stutely, and
+we will send yon fat Sheriff news of all this by a messenger such as he
+doth not expect."
+</block>
+    <block id="574745a8-e83f-400b-819a-121958a1f104" ref="id_2H_4_0004.p54" kind="paragraph" ordinal="54" anchor-id="947ce15c-c03c-4df9-bce9-a327af33f7e0" source-offset="54">
+That day the Sheriff sat at meat in the great hall of his house
+at Nottingham Town. Long tables stood down the hall, at which sat
+men-at-arms and household servants and good stout villains,(1) in all
+fourscore and more. There they talked of the day's shooting as they ate
+their meat and quaffed their ale. The Sheriff sat at the head of the
+table upon a raised seat under a canopy, and beside him sat his dame.
+</block>
+    <block id="bbef73d0-4979-4f16-af41-8f0d5b1f01a7" ref="id_2H_4_0004.p55" kind="footnote" ordinal="55" anchor-id="12439a88-0740-4458-b02a-90eb38787807" source-offset="55">(1) Bond-servants.</block>
+    <block id="f7e3525b-cc9d-4bef-8c08-630a2d368536" ref="id_2H_4_0004.p56" kind="paragraph" ordinal="56" anchor-id="e5f90e8e-1fe9-4929-ba7d-2ff518b08cf5" source-offset="56">
+"By my troth," said he, "I did reckon full roundly that that knave Robin
+Hood would be at the game today. I did not think that he was such a
+coward. But who could that saucy knave be who answered me to my beard
+so bravely? I wonder that I did not have him beaten; but there was
+something about him that spoke of other things than rags and tatters."
+</block>
+    <block id="bec99a18-85dd-4b00-8341-1ca866c97fda" ref="id_2H_4_0004.p57" kind="paragraph" ordinal="57" anchor-id="8754c04b-f254-45f0-a50d-0f81bb4b8910" source-offset="57">
+Then, even as he finished speaking, something fell rattling among the
+dishes on the table, while those that sat near started up wondering
+what it might be. After a while one of the men-at-arms gathered courage
+enough to pick it up and bring it to the Sheriff. Then everyone saw
+that it was a blunted gray goose shaft, with a fine scroll, about the
+thickness of a goose quill, tied near to its head. The Sheriff opened
+the scroll and glanced at it, while the veins upon his forehead swelled
+and his cheeks grew ruddy with rage as he read, for this was what he
+saw:
+</block>
+    <block id="c8e6e83a-b017-446f-824b-0f47a62e50a3" ref="id_2H_4_0004.p58" kind="verse-line" ordinal="58" anchor-id="d543034f-2ee8-406b-92ba-b40969881ce3" source-offset="58">"Now Heaven bless Thy Grace this day</block>
+    <block id="7643f4a0-2469-4e8e-9ef0-50ef1de5480b" ref="id_2H_4_0004.p59" kind="verse-line" ordinal="59" anchor-id="59f13039-4489-4844-bb1a-a3cf60ff18e6" source-offset="59">     Say all in sweet Sherwood</block>
+    <block id="deda8c4c-ce0a-4e33-94db-749649a766fc" ref="id_2H_4_0004.p60" kind="verse-line" ordinal="60" anchor-id="0575aea8-9576-4433-aa7f-560a784ad9c9" source-offset="60">     For thou didst give the prize away</block>
+    <block id="7b6dfad5-37d4-485d-b9ea-a2e5fb3f82f9" ref="id_2H_4_0004.p61" kind="verse-line" ordinal="61" anchor-id="f4b72a5f-fa91-4831-81f6-109e44fa8d68" source-offset="61">     To merry Robin Hood."</block>
+    <block id="8da21209-2484-4340-9654-27d2909dea39" ref="id_2H_4_0004.p62" kind="paragraph" ordinal="62" anchor-id="d3b48900-190a-4558-8155-771fccf4d3f2" source-offset="62">
+"Whence came this?" cried the Sheriff in a mighty voice.
+</block>
+    <block id="b9b7ba6b-7839-424e-b6ad-cfcbc73ea05a" ref="id_2H_4_0004.p63" kind="paragraph" ordinal="63" anchor-id="64a32209-fa40-4931-8005-5c0d6ae72273" source-offset="63">
+"Even through the window, Your Worship," quoth the man who had handed
+the shaft to him.
+
+      
+    
+      
+    
+      <illustration item-id="01a012a0-d3ff-74de-8db2-be06e66e70a9" blob-id="01a012a0-d472-78f1-9309-d03b083cfce7" source-ref="images/crops/shooting_tailpiece.jpg" anchor-id="64a32209-fa40-4931-8005-5c0d6ae72273" role="tailpiece"></illustration>
+    </block>
+  </division>
+  <division id="b0694dc4-87e3-472a-bf1e-6cf14b31788b" ref="id_2H_4_0009" kind="chapter" ordinal="11" depth="0" title="Little John and the Tanner of Blyth" source-anchor="id_2H_4_0009" anchor-id="12e0b267-f0e7-4eee-b16c-a025ea286c37">
+    <block id="01a00bf4-47fd-71a1-9d0f-53bdeb3e25ee" ref="id_2H_4_0009.p0a" kind="argument" ordinal="0.3333333333333333" anchor-id="01a00bf4-47fd-71a2-8cd5-f664a66f2c54" source-offset="0">Recounting three merry adventures that befel Robin Hood and certain others^ by which he gained sore bones and three good merry meny all in one day.</block>
+    <block id="01a00bf4-47fd-71c9-9cb9-29554811e49b" ref="id_2H_4_0009.p0b" kind="paragraph" ordinal="0.6666666666666666" anchor-id="01a00bf4-47fd-71ca-971c-d5556598ae70" source-offset="0">It often comes about in this world that unlucky happenings fall upon one in such measure that it seems, as the saying is, that every cat that one strokes flies into one's face. Thus it was with Robin Hood and Little John one bright day in the merry Maytime ; so listen and you shall hear how Dame Luck so buffeted them that their bones were sore for many a day thereafter.</block>
+    <block id="0ad1a810-87e5-409e-bd3a-56e3f655a4be" ref="id_2H_4_0009.p1" kind="paragraph" ordinal="1" anchor-id="9ffd34a0-ee96-40e1-9591-1500b3087009" source-offset="1">One fine day, not long after Little John had left abiding with the
+Sheriff and had come back, with his worship's cook, to the merry
+greenwood, as has just been told, Robin Hood and a few chosen fellows of
+his band lay upon the soft sward beneath the greenwood tree where they
+dwelled. The day was warm and sultry, so that while most of the band
+were scattered through the forest upon this mission and upon that, these
+few stout fellows lay lazily beneath the shade of the tree, in the soft
+afternoon, passing jests among themselves and telling merry stories,
+with laughter and mirth.
+</block>
+    <block id="3a136914-6632-4698-96f0-e4ce01320f05" ref="id_2H_4_0009.p2" kind="paragraph" ordinal="2" anchor-id="678cc8f0-7ede-40fc-8916-7e8bd578e2a8" source-offset="2">
+All the air was laden with the bitter fragrance of the May, and all
+the bosky shades of the woodlands beyond rang with the sweet song of
+birds—the throstle cock, the cuckoo, and the wood pigeon—and with the
+song of birds mingled the cool sound of the gurgling brook that leaped
+out of the forest shades, and ran fretting amid its rough, gray stones
+across the sunlit open glade before the trysting tree. And a fair sight
+was that halfscore of tall, stout yeomen, all clad in Lincoln green,
+lying beneath the broad-spreading branches of the great oak tree, amid
+the quivering leaves of which the sunlight shivered and fell in dancing
+patches upon the grass.
+</block>
+    <block id="8a2b242c-bc1c-4af0-af20-7bcdece5f23b" ref="id_2H_4_0009.p3" kind="paragraph" ordinal="3" anchor-id="b14e392c-dc07-4dd6-b440-ea5302972cb1" source-offset="3">
+Suddenly Robin Hood smote his knee.
+</block>
+    <block id="ad3342e9-b9f4-4ff3-8d9e-0a20414c95a2" ref="id_2H_4_0009.p4" kind="paragraph" ordinal="4" anchor-id="a63f588d-9252-4889-b248-5ccaca7fc724" source-offset="4">
+"By Saint Dunstan," quoth he, "I had nigh forgot that quarter-day cometh
+on apace, and yet no cloth of Lincoln green in all our store. It must be
+looked to, and that in quick season. Come, busk thee, Little John! Stir
+those lazy bones of thine, for thou must get thee straightway to our
+good gossip, the draper Hugh Longshanks of Ancaster. Bid him send us
+straightway twenty-score yards of fair cloth of Lincoln green; and mayhap
+the journey may take some of the fat from off thy bones, that thou hast
+gotten from lazy living at our dear Sheriff's."
+</block>
+    <block id="c3e2bb24-b578-4fc7-8b3a-ca56697058ba" ref="id_2H_4_0009.p5" kind="paragraph" ordinal="5" anchor-id="d941c3ef-27bd-40de-945a-1f901a69866b" source-offset="5">
+"Nay," muttered Little John (for he had heard so much upon this score
+that he was sore upon the point), "nay, truly, mayhap I have more flesh
+upon my joints than I once had, yet, flesh or no flesh, I doubt not that
+I could still hold my place and footing upon a narrow bridge against
+e'er a yeoman in Sherwood, or Nottinghamshire, for the matter of that,
+even though he had no more fat about his bones than thou hast, good
+master."
+</block>
+    <block id="4f2b31e0-9e4c-4428-80d2-bf99022cc54c" ref="id_2H_4_0009.p6" kind="paragraph" ordinal="6" anchor-id="a759c13a-c5f2-479d-9ef5-72bff4bc8234" source-offset="6">
+At this reply a great shout of laughter went up, and all looked at Robin
+Hood, for each man knew that Little John spake of a certain fight that
+happened between their master and himself, through which they first
+became acquainted.
+</block>
+    <block id="7389cf88-ccf8-4570-b345-a81f2a317de3" ref="id_2H_4_0009.p7" kind="paragraph" ordinal="7" anchor-id="8d73b773-cd8a-46ae-8427-9d9d3e126f6d" source-offset="7">
+"Nay," quoth Robin Hood, laughing louder than all. "Heaven forbid that
+I should doubt thee, for I care for no taste of thy staff myself, Little
+John. I must needs own that there are those of my band can handle a
+seven-foot staff more deftly than I; yet no man in all Nottinghamshire
+can draw gray goose shaft with my fingers. Nevertheless, a journey to
+Ancaster may not be ill for thee; so go thou, as I bid, and thou hadst
+best go this very evening, for since thou hast abided at the Sheriff's
+many know thy face, and if thou goest in broad daylight, thou mayst get
+thyself into a coil with some of his worship's men-at-arms. Bide thou
+here till I bring thee money to pay our good Hugh. I warrant he hath no
+better customers in all Nottinghamshire than we." So saying, Robin left
+them and entered the forest.
+</block>
+    <block id="4428a608-8a6d-4f22-a383-169eda79f60b" ref="id_2H_4_0009.p8" kind="paragraph" ordinal="8" anchor-id="8e2f1c5d-cddd-4431-bf7c-2f7ab8d9e172" source-offset="8">
+Not far from the trysting tree was a great rock in which a chamber
+had been hewn, the entrance being barred by a massive oaken door two
+palms'-breadth in thickness, studded about with spikes, and fastened
+with a great padlock. This was the treasure house of the band, and
+thither Robin Hood went and, unlocking the door, entered the chamber,
+from which he brought forth a bag of gold which he gave to Little John,
+to pay Hugh Longshanks withal, for the cloth of Lincoln green.
+</block>
+    <block id="e9871ec7-fbdd-4f72-b462-48174d363ab3" ref="id_2H_4_0009.p9" kind="paragraph" ordinal="9" anchor-id="deb4bde0-cadc-46d7-b600-218dc0554ac8" source-offset="9">
+Then up got Little John, and, taking the bag of gold, which he thrust
+into his bosom, he strapped a girdle about his loins, took a stout
+pikestaff full seven feet long in his hand, and set forth upon his
+journey.
+</block>
+    <block id="405e2d31-8116-4af2-ada7-308cc468f740" ref="id_2H_4_0009.p10" kind="paragraph" ordinal="10" anchor-id="fb0cce7f-f6d8-4af9-847b-202cb1012364" source-offset="10">
+So he strode whistling along the leafy forest path that led to Fosse
+Way, turning neither to the right hand nor the left, until at last he
+came to where the path branched, leading on the one hand onward to Fosse
+Way, and on the other, as well Little John knew, to the merry Blue
+Boar Inn. Here Little John suddenly ceased whistling and stopped in
+the middle of the path. First he looked up and then he looked down, and
+then, tilting his cap over one eye, he slowly scratched the back part of
+his head. For thus it was: at the sight of these two roads, two voices
+began to alarum within him, the one crying, "There lies the road to
+the Blue Boar Inn, a can of brown October, and a merry night with sweet
+companions such as thou mayst find there;" the other, "There lies the
+way to Ancaster and the duty thou art sent upon." Now the first of these
+two voices was far the louder, for Little John had grown passing fond
+of good living through abiding at the Sheriff's house; so, presently,
+looking up into the blue sky, across which bright clouds were sailing
+like silver boats, and swallows skimming in circling flight, quoth he,
+"I fear me it will rain this evening, so I'll e'en stop at the Blue Boar
+till it passes by, for I know my good master would not have me wet to
+the skin." So, without more ado, off he strode down the path that lay
+the way of his likings. Now there was no sign of any foul weather, but
+when one wishes to do a thing, as Little John did, one finds no lack of
+reasons for the doing.
+</block>
+    <block id="d9485dca-17f4-424b-a771-d25f09454d8b" ref="id_2H_4_0009.p11" kind="paragraph" ordinal="11" anchor-id="7ddcc341-cd4c-43c0-9a69-23db9c62517d" source-offset="11">
+Four merry wags were at the Blue Boar Inn; a butcher, a beggar, and two
+barefoot friars. Little John heard them singing from afar, as he walked
+through the hush of the mellow twilight that was now falling over hill
+and dale. Right glad were they to welcome such a merry blade as Little
+John. Fresh cans of ale were brought, and with jest and song and merry
+tales the hours slipped away on fleeting wings. None thought of time or
+tide till the night was so far gone that Little John put by the thought
+of setting forth upon his journey again that night, and so bided at the
+Blue Boar Inn until the morrow.
+</block>
+    <block id="a159d683-0106-4398-a747-eb9b49563142" ref="id_2H_4_0009.p12" kind="paragraph" ordinal="12" anchor-id="95956918-3c2d-4348-bf67-e3fd558a558a" source-offset="12">
+Now it was an ill piece of luck for Little John that he left his duty
+for his pleasure, and he paid a great score for it, as we are all apt to
+do in the same case, as you shall see.
+</block>
+    <block id="3bb37030-ea4c-4e61-83bd-ef3cfd275c3e" ref="id_2H_4_0009.p13" kind="paragraph" ordinal="13" anchor-id="905f15df-7ecb-4f42-9532-a744cc381640" source-offset="13">
+Up he rose at the dawn of the next day, and, taking his stout pikestaff
+in his hand, he set forth upon his journey once more, as though he would
+make up for lost time.
+</block>
+    <block id="f4728094-655d-4672-ac40-0b19b7ff7b73" ref="id_2H_4_0009.p14" kind="paragraph" ordinal="14" anchor-id="c845d92c-b004-410f-a504-a897c950fc51" source-offset="14">
+In the good town of Blyth there lived a stout tanner, celebrated far
+and near for feats of strength and many tough bouts at wrestling and the
+quarterstaff. For five years he had held the mid-country champion belt
+for wrestling, till the great Adam o' Lincoln cast him in the ring and
+broke one of his ribs; but at quarterstaff he had never yet met his
+match in all the country about. Besides all this, he dearly loved the
+longbow, and a sly jaunt in the forest when the moon was full and the
+dun deer in season; so that the King's rangers kept a shrewd eye upon
+him and his doings, for Arthur a Bland's house was apt to have aplenty
+of meat in it that was more like venison than the law allowed.
+</block>
+    <block id="0c228b4e-f5d8-4cab-9490-c352b7134151" ref="id_2H_4_0009.p15" kind="paragraph" ordinal="15" anchor-id="12d4ab8e-a3e1-4993-96e5-ed4b605eb2d0" source-offset="15">
+Now Arthur had been to Nottingham Town the day before Little John set
+forth on his errand, there to sell a halfscore of tanned cowhides. At
+the dawn of the same day that Little John left the inn, he started from
+Nottingham, homeward for Blyth. His way led, all in the dewy morn, past
+the verge of Sherwood Forest, where the birds were welcoming the lovely
+day with a great and merry jubilee. Across the Tanner's shoulders was
+slung his stout quarterstaff, ever near enough to him to be gripped
+quickly, and on his head was a cap of doubled cowhide, so tough that it
+could hardly be cloven even by a broadsword.
+</block>
+    <block id="1ee1bbdf-88eb-4e40-ae91-c21ab3ddc1cd" ref="id_2H_4_0009.p16" kind="paragraph" ordinal="16" anchor-id="f5a3ffd0-b142-42f1-b7db-afe5562fe350" source-offset="16">
+"Now," quoth Arthur a Bland to himself, when he had come to that part of
+the road that cut through a corner of the forest, "no doubt at this time
+of year the dun deer are coming from the forest depths nigher to the
+open meadow lands. Mayhap I may chance to catch a sight of the dainty
+brown darlings thus early in the morn." For there was nothing he loved
+better than to look upon a tripping herd of deer, even when he could
+not tickle their ribs with a clothyard shaft. Accordingly, quitting the
+path, he went peeping this way and that through the underbrush, spying
+now here and now there, with all the wiles of a master of woodcraft, and
+of one who had more than once donned a doublet of Lincoln green.
+</block>
+    <block id="acf52a6a-832e-4ea5-b8ac-091187bf6444" ref="id_2H_4_0009.p17" kind="paragraph" ordinal="17" anchor-id="72c3881b-615d-46f3-8745-0565a658cc9e" source-offset="17">
+Now as Little John stepped blithely along, thinking of nothing but of
+such things as the sweetness of the hawthorn buds that bedecked the
+hedgerows, or gazing upward at the lark, that, springing from the dewy
+grass, hung aloft on quivering wings in the yellow sunlight, pouring
+forth its song that fell like a falling star from the sky, his luck led
+him away from the highway, not far from the spot where Arthur a Bland
+was peeping this way and that through the leaves of the thickets.
+Hearing a rustling of the branches, Little John stopped and presently
+caught sight of the brown cowhide cap of the Tanner moving among the
+bushes.
+</block>
+    <block id="a3d5f3a0-c292-4d6c-a85e-a882dba3994e" ref="id_2H_4_0009.p18" kind="paragraph" ordinal="18" anchor-id="ff78f7c9-2d02-4271-991e-3388e417f765" source-offset="18">
+"I do much wonder," quoth Little John to himself, "what yon knave is
+after, that he should go thus peeping and peering about I verily believe
+that yon scurvy varlet is no better than a thief, and cometh here after
+our own and the good King's dun deer." For by much roving in the forest,
+Little John had come to look upon all the deer in Sherwood as belonging
+to Robin Hood and his band as much as to good King Harry. "Nay," quoth
+he again, after a time, "this matter must e'en be looked into." So,
+quitting the highroad, he also entered the thickets, and began spying
+around after stout Arthur a Bland.
+</block>
+    <block id="742d3d39-fe6a-4431-8471-0847e1a47989" ref="id_2H_4_0009.p19" kind="paragraph" ordinal="19" anchor-id="4cb0870a-d300-40d4-962d-241b272ce73c" source-offset="19">
+So for a long time they both of them went hunting about, Little John
+after the Tanner, and the Tanner after the deer. At last Little John
+trod upon a stick, which snapped under his foot, whereupon, hearing the
+noise, the Tanner turned quickly and caught sight of the yeoman. Seeing
+that the Tanner had spied him out, Little John put a bold face upon the
+matter.
+</block>
+    <block id="facc475c-1ca1-4ee6-930f-fe1c7f856b0b" ref="id_2H_4_0009.p20" kind="paragraph" ordinal="20" anchor-id="c997e09b-f5bd-4068-afd5-2281d3e03862" source-offset="20">
+"Hilloa," quoth he, "what art thou doing here, thou naughty fellow? Who
+art thou that comest ranging Sherwood's paths? In very sooth thou hast
+an evil cast of countenance, and I do think, truly, that thou art no
+better than a thief, and comest after our good King's deer."
+</block>
+    <block id="a1abc378-49c6-47ee-97c7-e68cb34fd007" ref="id_2H_4_0009.p21" kind="paragraph" ordinal="21" anchor-id="cbf791d4-bcb4-47f8-88f3-ad4250886f28" source-offset="21">
+"Nay," quoth the Tanner boldly—for, though taken by surprise, he was
+not a man to be frightened by big words—"thou liest in thy teeth. I am
+no thief, but an honest craftsman. As for my countenance, it is what
+it is; and, for the matter of that, thine own is none too pretty, thou
+saucy fellow."
+</block>
+    <block id="2355d3e2-1c0c-45e5-ab1f-8c802c919d42" ref="id_2H_4_0009.p22" kind="paragraph" ordinal="22" anchor-id="301cb25f-dbcc-47e5-a679-9bdc25293cef" source-offset="22">
+"Ha!" quoth Little John in a great loud voice, "wouldst thou give me
+backtalk? Now I have a great part of a mind to crack thy pate for thee.
+I would have thee know, fellow, that I am, as it were, one of the King's
+foresters. Leastwise," muttered he to himself, "I and my friends do take
+good care of our good sovereign's deer."
+</block>
+    <block id="4b044fee-770f-42d2-ba5f-68224f063dae" ref="id_2H_4_0009.p23" kind="paragraph" ordinal="23" anchor-id="fcd41050-5595-442d-8ae9-d062f8f74ed5" source-offset="23">
+"I care not who thou art," answered the bold Tanner, "and unless thou
+hast many more of thy kind by thee, thou canst never make Arthur a Bland
+cry 'A mercy.'"
+</block>
+    <block id="720a833d-33cb-41cf-bbe7-170b12ce906d" ref="id_2H_4_0009.p24" kind="paragraph" ordinal="24" anchor-id="ebe59c16-32a7-4724-be9b-ffee25b96572" source-offset="24">
+"Is it so?" cried Little John in a rage. "Now, by my faith, thou saucy
+rogue, thy tongue hath led thee into a pit thou wilt have a sorry time
+getting out of; for I will give thee such a drubbing as ne'er hast thou
+had in all thy life before. Take thy staff in thy hand, fellow, for I
+will not smite an unarmed man.
+</block>
+    <block id="2069ab3d-2be7-4256-b882-25c91f329ffb" ref="id_2H_4_0009.p25" kind="paragraph" ordinal="25" anchor-id="ef5952a6-c4ed-4e21-a58d-c61c77927a49" source-offset="25">
+"Marry come up with a murrain!" cried the Tanner, for he, too, had
+talked himself into a fume. "Big words ne'er killed so much as a mouse.
+Who art thou that talkest so freely of cracking the head of Arthur a
+Bland? If I do not tan thy hide this day as ne'er I tanned a calf's hide
+in all my life before, split my staff into skewers for lamb's flesh and
+call me no more brave man! Now look to thyself, fellow!"
+</block>
+    <block id="29bb451b-1c4c-4b12-b7d3-a75329b256ee" ref="id_2H_4_0009.p26" kind="paragraph" ordinal="26" anchor-id="73907112-5ff7-40fc-acac-fc8e07186cbc" source-offset="26">
+"Stay!" said Little John. "Let us first measure our cudgels. I do reckon
+my staff longer than thine, and I would not take vantage of thee by even
+so much as an inch."
+</block>
+    <block id="b62b6060-d856-4a05-a9bc-cc26bbe3d582" ref="id_2H_4_0009.p27" kind="paragraph" ordinal="27" anchor-id="e4bfe0a2-52ac-4d0f-b6b7-cd4f30f693fd" source-offset="27">
+"Nay, I pass not for length," answered the Tanner. "My staff is long
+enough to knock down a calf; so look to thyself, fellow, I say again."
+</block>
+    <block id="941a8e58-b82c-4785-9fba-081841f8dc23" ref="id_2H_4_0009.p28" kind="paragraph" ordinal="28" anchor-id="2e26075a-af62-4ae6-b3a1-377b326401de" source-offset="28">
+So, without more ado, each gripped his staff in the middle, and, with
+fell and angry looks, they came slowly together.
+</block>
+    <block id="91c2c261-3f80-445f-89e4-ff7a30b64cf3" ref="id_2H_4_0009.p29" kind="paragraph" ordinal="29" anchor-id="348a583f-0ddd-43db-a7df-0488967de7f6" source-offset="29">
+Now news had been brought to Robin Hood how that Little John, instead of
+doing his bidding, had passed by duty for pleasure, and so had stopped
+overnight with merry company at the Blue Boar Inn, instead of going
+straight to Ancaster. So, being vexed to his heart by this, he set forth
+at dawn of day to seek Little John at the Blue Boar, or at least to
+meet the yeoman on the way, and ease his heart of what he thought of the
+matter. As thus he strode along in anger, putting together the words he
+would use to chide Little John, he heard, of a sudden, loud and angry
+voices, as of men in a rage, passing fell words back and forth from one
+to the other. At this, Robin Hood stopped and listened. "Surely," quoth
+he to himself, "that is Little John's voice, and he is talking in anger
+also. Methinks the other is strange to my ears. Now Heaven forfend that
+my good trusty Little John should have fallen into the hands of the
+King's rangers. I must see to this matter, and that quickly."
+</block>
+    <block id="cc708e31-fa6f-4630-ad00-f48c222ec00b" ref="id_2H_4_0009.p30" kind="paragraph" ordinal="30" anchor-id="01541bd7-8ff1-4e8c-916e-9fea60e11e36" source-offset="30">
+Thus spoke Robin Hood to himself, all his anger passing away like a
+breath from the windowpane, at the thought that perhaps his trusty
+right-hand man was in some danger of his life. So cautiously he made his
+way through the thickets whence the voices came, and, pushing aside the
+leaves, peeped into the little open space where the two men, staff in
+hand, were coming slowly together.
+</block>
+    <block id="1b243112-105d-4640-a1df-76ae5512a361" ref="id_2H_4_0009.p31" kind="paragraph" ordinal="31" anchor-id="40cbc3a0-1e3d-4800-b80e-e19c41c2db5c" source-offset="31">
+"Ha!" quoth Robin to himself, "here is merry sport afoot. Now I would
+give three golden angels from my own pocket if yon stout fellow would
+give Little John a right sound drubbing! It would please me to see him
+well thumped for having failed in my bidding. I fear me, though, there
+is but poor chance of my seeing such a pleasant sight." So saying, he
+stretched himself at length upon the ground, that he might not only see
+the sport the better, but that he might enjoy the merry sight at his
+ease.
+</block>
+    <block id="dd0673c3-bbcc-4b72-ae8f-901a9199e048" ref="id_2H_4_0009.p32" kind="paragraph" ordinal="32" anchor-id="11111aab-de4f-40aa-9589-eb544f7cc30b" source-offset="32">
+As you may have seen two dogs that think to fight, walking slowly round
+and round each other, neither cur wishing to begin the combat, so those
+two stout yeomen moved slowly around, each watching for a chance to take
+the other unaware, and so get in the first blow. At last Little John
+struck like a flash, and—"rap!"—the Tanner met the blow and turned it
+aside, and then smote back at Little John, who also turned the blow; and
+so this mighty battle began. Then up and down and back and forth they
+trod, the blows falling so thick and fast that, at a distance, one would
+have thought that half a score of men were fighting. Thus they fought
+for nigh a half an hour, until the ground was all plowed up with the
+digging of their heels, and their breathing grew labored like the ox in
+the furrow. But Little John suffered the most, for he had become unused
+to such stiff labor, and his joints were not as supple as they had been
+before he went to dwell with the Sheriff.
+</block>
+    <block id="5510f863-09d1-4d78-8172-d8575e5aae0a" ref="id_2H_4_0009.p33" kind="paragraph" ordinal="33" anchor-id="d1002425-d7b2-4746-8b3a-72665cc900fd" source-offset="33">
+All this time Robin Hood lay beneath the bush, rejoicing at such a
+comely bout of quarterstaff. "By my faith!" quoth he to himself, "never
+had I thought to see Little John so evenly matched in all my life.
+Belike, though, he would have overcome yon fellow before this had he
+been in his former trim."
+</block>
+    <block id="1652ab54-b49b-4747-ac6c-8f3aa4326436" ref="id_2H_4_0009.p34" kind="paragraph" ordinal="34" anchor-id="4f9ab062-1497-4e74-8bdf-1fcb52c6f13d" source-offset="34">
+At last Little John saw his chance, and, throwing all the strength
+he felt going from him into one blow that might have felled an ox,
+he struck at the Tanner with might and main. And now did the Tanner's
+cowhide cap stand him in good stead, and but for it he might never have
+held staff in hand again. As it was, the blow he caught beside the head
+was so shrewd that it sent him staggering across the little glade, so
+that, if Little John had had the strength to follow up his vantage, it
+would have been ill for stout Arthur. But he regained himself quickly
+and, at arm's length, struck back a blow at Little John, and this time
+the stroke reached its mark, and down went Little John at full length,
+his cudgel flying from his hand as he fell. Then, raising his staff,
+stout Arthur dealt him another blow upon the ribs.
+</block>
+    <block id="00acae6c-0c60-400f-addc-1d4b162a0065" ref="id_2H_4_0009.p35" kind="paragraph" ordinal="35" anchor-id="812eb4c8-4235-43d9-a2c2-2fa09b0fb513" source-offset="35">
+"Hold!" roared Little John. "Wouldst thou strike a man when he is down?"
+</block>
+    <block id="9653aef4-0419-4a9e-92e0-2a829aa50dc8" ref="id_2H_4_0009.p36" kind="paragraph" ordinal="36" anchor-id="af1b2167-dee0-411b-b936-f195466f4a8f" source-offset="36">
+"Ay, marry would I," quoth the Tanner, giving him another thwack with
+his staff.
+</block>
+    <block id="5a3ff9e3-e302-4c40-b0ce-d4708094e22a" ref="id_2H_4_0009.p37" kind="paragraph" ordinal="37" anchor-id="6f9c3684-6c86-4a81-be58-c55aa29aeb3e" source-offset="37">
+"Stop!" roared Little John. "Help! Hold, I say! I yield me! I yield me,
+I say, good fellow!"
+</block>
+    <block id="72a275a9-c349-4ccb-bf15-e91bc1950e39" ref="id_2H_4_0009.p38" kind="paragraph" ordinal="38" anchor-id="350e73a1-f5b8-4490-a82c-160e17442818" source-offset="38">
+"Hast thou had enough?" asked the Tanner grimly, holding his staff
+aloft.
+</block>
+    <block id="2cf700d0-3278-44c3-98e1-ee0e404d91ef" ref="id_2H_4_0009.p39" kind="paragraph" ordinal="39" anchor-id="536b9790-b574-49ad-8e28-475765fe02fc" source-offset="39">
+"Ay, marry, and more than enough."
+</block>
+    <block id="c8ced306-63ed-4c46-bf86-0d05fb0b97f1" ref="id_2H_4_0009.p40" kind="paragraph" ordinal="40" anchor-id="cb51781e-fe39-406b-b5b3-19da4e717281" source-offset="40">
+"And thou dost own that I am the better man of the two?"
+</block>
+    <block id="183ee96f-f2b7-462a-bae3-8f8bee487ffb" ref="id_2H_4_0009.p41" kind="paragraph" ordinal="41" anchor-id="8893044c-2c44-4989-81ff-c3a74c5df5a5" source-offset="41">
+"Yea, truly, and a murrain seize thee!" said Little John, the first
+aloud and the last to his beard.
+</block>
+    <block id="6a742e02-fac2-4a00-8485-46b24d605bca" ref="id_2H_4_0009.p42" kind="paragraph" ordinal="42" anchor-id="74ad42ed-9773-4e2a-9a5a-8b6aa19b2c35" source-offset="42">
+"Then thou mayst go thy ways; and thank thy patron saint that I am a
+merciful man," said the Tanner.
+</block>
+    <block id="71f2f2b0-8f42-49a9-a506-2a227274b1fe" ref="id_2H_4_0009.p43" kind="paragraph" ordinal="43" anchor-id="d44e9c4c-bf5d-4b1a-b0ac-09b82fb6b835" source-offset="43">
+"A plague o' such mercy as thine!" said Little John, sitting up and
+feeling his ribs where the Tanner had cudgeled him. "I make my vow, my
+ribs feel as though every one of them were broken in twain. I tell thee,
+good fellow, I did think there was never a man in all Nottinghamshire
+could do to me what thou hast done this day."
+</block>
+    <block id="a28037a2-4786-4a65-96b8-87bd1152c008" ref="id_2H_4_0009.p44" kind="paragraph" ordinal="44" anchor-id="6e970440-d003-475a-9c3b-728cef216d85" source-offset="44">
+"And so thought I, also," cried Robin Hood, bursting out of the thicket
+and shouting with laughter till the tears ran down his cheeks. "O man,
+man!" said he, as well as he could for his mirth, "'a didst go over
+like a bottle knocked from a wall. I did see the whole merry bout, and
+never did I think to see thee yield thyself so, hand and foot, to any
+man in all merry England. I was seeking thee, to chide thee for leaving
+my bidding undone; but thou hast been paid all I owed thee, full
+measure, pressed down and overflowing, by this good fellow. Marry, 'a
+did reach out his arm full length while thou stood gaping at him, and,
+with a pretty rap, tumbled thee over as never have I seen one tumbled
+before." So spoke bold Robin, and all the time Little John sat upon the
+ground, looking as though he had sour curds in his mouth. "What may be
+thy name, good fellow?" said Robin, next, turning to the Tanner.
+</block>
+    <block id="b51e2e03-5c6e-4e87-9e67-e4a40e4b943b" ref="id_2H_4_0009.p45" kind="paragraph" ordinal="45" anchor-id="0f73c687-41b9-4345-b36a-1510d544e998" source-offset="45">
+"Men do call me Arthur a Bland," spoke up the Tanner boldly, "and now
+what may be thy name?"
+</block>
+    <block id="0537ff7f-73ef-478b-b7da-d029276565ed" ref="id_2H_4_0009.p46" kind="paragraph" ordinal="46" anchor-id="7d8f5bcd-140a-480d-b6d2-cab55426113f" source-offset="46">
+"Ha, Arthur a Bland!" quoth Robin, "I have heard thy name before, good
+fellow. Thou didst break the crown of a friend of mine at the fair at
+Ely last October. The folk there call him Jock o' Nottingham; we call
+him Will Scathelock. This poor fellow whom thou hast so belabored is
+counted the best hand at the quarterstaff in all merry England. His name
+is Little John, and mine Robin Hood."
+</block>
+    <block id="f8ef1684-ab22-44ed-a2a3-45dbd46027b8" ref="id_2H_4_0009.p47" kind="paragraph" ordinal="47" anchor-id="49bfa783-c11c-43e4-aa8c-8d7cd0e2b036" source-offset="47">
+"How!" cried the Tanner, "art thou indeed the great Robin Hood, and is
+this the famous Little John? Marry, had I known who thou art, I would
+never have been so bold as to lift my hand against thee. Let me help
+thee to thy feet, good Master Little John, and let me brush the dust
+from off thy coat."
+</block>
+    <block id="0201f9d1-7b1b-4b2c-9aa2-068dd5dba2ff" ref="id_2H_4_0009.p48" kind="paragraph" ordinal="48" anchor-id="4df60982-507f-4506-8968-1ff244319444" source-offset="48">
+"Nay," quoth Little John testily, at the same time rising carefully,
+as though his bones had been made of glass, "I can help myself, good
+fellow, without thy aid; and let me tell thee, had it not been for that
+vile cowskin cap of thine, it would have been ill for thee this day."
+</block>
+    <block id="a18cca7b-779c-4b27-a109-18b66a8d59e3" ref="id_2H_4_0009.p49" kind="paragraph" ordinal="49" anchor-id="93b15477-b249-4c62-8ac6-a2d465110844" source-offset="49">
+At this Robin laughed again, and, turning to the Tanner, he said, "Wilt
+thou join my band, good Arthur? For I make my vow thou art one of the
+stoutest men that ever mine eyes beheld."
+</block>
+    <block id="b189f5ac-080c-4b15-9aea-7c294b49a344" ref="id_2H_4_0009.p50" kind="paragraph" ordinal="50" anchor-id="f1465430-e788-485c-89a6-6890903f6730" source-offset="50">
+"Will I join thy band?" cried the Tanner joyfully. "Ay, marry, will I!
+Hey for a merry life!" cried he, leaping aloft and snapping his fingers,
+"and hey for the life I love! Away with tanbark and filthy vats and foul
+cowhides! I will follow thee to the ends of the earth, good master, and
+not a herd of dun deer in all the forest but shall know the sound of the
+twang of my bowstring."
+</block>
+    <block id="5ba02fcb-0652-4f6f-a0e5-9713cd160fff" ref="id_2H_4_0009.p51" kind="paragraph" ordinal="51" anchor-id="c1ee3550-9d35-4313-afd9-40412b36226d" source-offset="51">
+"As for thee, Little John," said Robin, turning to him and laughing,
+"thou wilt start once more for Ancaster, and we will go part way with
+thee, for I will not have thee turn again to either the right hand or
+the left till thou hast fairly gotten away from Sherwood. There are
+other inns that thou knowest yet, hereabouts." Thereupon, leaving the
+thickets, they took once more to the highway and departed upon their
+business.
+</block>
+  </division>
+  <division id="fdfd7db2-e81b-4064-8af4-55ea3916393b" ref="id_2H_4_0020" kind="chapter" ordinal="22" depth="0" title="The Chase of Robin Hood" source-anchor="id_2H_4_0020" anchor-id="dbc281b9-1c78-4128-8a0e-ad91ad6feedf">
+    <block id="19995321-238b-4be5-82cc-905510a6e9f2" ref="id_2H_4_0020.p1" kind="paragraph" ordinal="1" anchor-id="31955469-8361-4dc2-bba5-90de0031ffa6" source-offset="1">
+SO ROBIN HOOD and the others left the archery range at Finsbury Fields,
+and, tarrying not, set forth straightway upon their homeward journey.
+It was well for them that they did so, for they had not gone more than
+three or four miles upon their way when six of the yeomen of the King's
+guard came bustling among the crowd that still lingered, seeking for
+Robin and his men, to seize upon them and make them prisoners. Truly, it
+was an ill-done thing in the King to break his promise, but it all came
+about through the Bishop of Hereford's doing, for thus it happened:
+</block>
+    <block id="8f415b08-d08b-46fa-9f83-27379653b744" ref="id_2H_4_0020.p2" kind="paragraph" ordinal="2" anchor-id="b8d24d2e-179b-4766-bff3-e3be1256de65" source-offset="2">
+After the King left the archery ground, he went straightway to his
+cabinet, and with him went the Bishop of Hereford and Sir Robert Lee;
+but the King said never a word to these two, but sat gnawing his nether
+lip, for his heart was galled within him by what had happened. At last
+the Bishop of Hereford spoke, in a low, sorrowful voice: "It is a sad
+thing, Your Majesty, that this knavish outlaw should be let to escape in
+this wise; for, let him but get back to Sherwood Forest safe and sound,
+and he may snap his fingers at king and king's men."
+</block>
+    <block id="cd595d61-93b8-442d-a116-5774081685a2" ref="id_2H_4_0020.p3" kind="paragraph" ordinal="3" anchor-id="ffbbf19a-528c-4c2d-8e85-4ea44c541708" source-offset="3">
+At these words the King raised his eyes and looked grimly upon the
+Bishop. "Sayst thou so?" quoth he. "Now, I will show thee, in good time,
+how much thou dost err, for, when the forty days are past and gone,
+I will seize upon this thieving outlaw, if I have to tear down all of
+Sherwood to find him. Thinkest thou that the laws of the King of England
+are to be so evaded by one poor knave without friends or money?"
+</block>
+    <block id="11b2d82c-f920-4654-a2f5-1fd8ec5a9432" ref="id_2H_4_0020.p4" kind="paragraph" ordinal="4" anchor-id="2cd4ae5c-e4ce-4500-bcc7-a0384e335234" source-offset="4">
+Then the Bishop spoke again, in his soft, smooth voice:
+</block>
+    <block id="ce7cbe18-ac04-44bf-be20-784da2b8e2e4" ref="id_2H_4_0020.p5" kind="paragraph" ordinal="5" anchor-id="f3dc972e-ce2f-4736-be46-dd450e8d35cc" source-offset="5">
+"Forgive my boldness, Your Majesty, and believe that I have nought but
+the good of England and Your Majesty's desirings at heart; but what
+would it boot though my gracious lord did root up every tree of
+Sherwood? Are there not other places for Robin Hood's hiding? Cannock
+Chase is not far from Sherwood, and the great Forest of Arden is not far
+from Cannock Chase. Beside these are many other woodlands in Nottingham
+and Derby, Lincoln and York, amid any of which Your Majesty might as
+well think to seize upon Robin Hood as to lay finger upon a rat among
+the dust and broken things of a garret. Nay, my gracious lord, if he
+doth once plant foot in the woodland, he is lost to the law forever."
+</block>
+    <block id="bd8f41c3-4506-4aa4-a650-bd4688c864ab" ref="id_2H_4_0020.p6" kind="paragraph" ordinal="6" anchor-id="95d3d7d3-83d2-4ee1-a3d3-1f0ea509bef8" source-offset="6">
+At these words the King tapped his fingertips upon the table beside him
+with vexation. "What wouldst thou have me do, Bishop?" quoth he. "Didst
+thou not hear me pledge my word to the Queen? Thy talk is as barren as
+the wind from the bellows upon dead coals."
+</block>
+    <block id="c720f36d-c947-45d0-9f3f-ea3e656380cd" ref="id_2H_4_0020.p7" kind="paragraph" ordinal="7" anchor-id="9b194434-45c2-4156-a01b-11c878d3b234" source-offset="7">
+"Far be it from me," said the cunning Bishop, "to point the way to one
+so clear-sighted as Your Majesty; but, were I the King of England, I
+should look upon the matter in this wise: I have promised my Queen, let
+us say, that for forty days the cunningest rogue in all England shall
+have freedom to come and go; but, lo! I find this outlaw in my grasp;
+shall I, then, foolishly cling to a promise so hastily given? Suppose
+that I had promised to do Her Majesty's bidding, whereupon she bade me
+to slay myself; should I, then, shut mine eyes and run blindly upon
+my sword? Thus would I argue within myself. Moreover, I would say unto
+myself, a woman knoweth nought of the great things appertaining to state
+government; and, likewise, I know a woman is ever prone to take up a
+fancy, even as she would pluck a daisy from the roadside, and then throw
+it away when the savor is gone; therefore, though she hath taken a fancy
+to this outlaw, it will soon wane away and be forgotten. As for me, I
+have the greatest villain in all England in my grasp; shall I, then,
+open my hand and let him slip betwixt my fingers? Thus, Your Majesty,
+would I say to myself, were I the King of England." So the Bishop
+talked, and the King lent his ear to his evil counsel, until, after a
+while, he turned to Sir Robert Lee and bade him send six of the yeomen
+of the guard to take Robin Hood and his three men prisoners.
+</block>
+    <block id="aaf73748-8f7a-472e-beee-9e4a189d6c79" ref="id_2H_4_0020.p8" kind="paragraph" ordinal="8" anchor-id="1fa119fd-85c0-4810-988a-17b8619a3006" source-offset="8">
+Now Sir Robert Lee was a gentle and noble knight, and he felt grieved
+to the heart to see the King so break his promise; nevertheless, he said
+nothing, for he saw how bitterly the King was set against Robin Hood;
+but he did not send the yeomen of the guard at once, but went first to
+the Queen, and told her all that had passed, and bade her send word to
+Robin of his danger. This he did not for the well-being of Robin Hood,
+but because he would save his lord's honor if he could. Thus it came
+about that when, after a while, the yeomen of the guard went to the
+archery field, they found not Robin and the others, and so got no cakes
+at that fair.
+</block>
+    <block id="4d449375-fc0f-407f-a0ad-988ef7c0cc77" ref="id_2H_4_0020.p9" kind="paragraph" ordinal="9" anchor-id="5a315f5d-4dc5-4dc4-8bc0-bfc1fe5239fa" source-offset="9">
+The afternoon was already well-nigh gone when Robin Hood, Little John,
+Will, and Allan set forth upon their homeward way, trudging along
+merrily through the yellow slanting light, which speedily changed to
+rosy red as the sun sank low in the heavens. The shadows grew long,
+and finally merged into the grayness of the mellow twilight. The dusty
+highway lay all white betwixt the dark hedgerows, and along it walked
+four fellows like four shadows, the pat of their feet sounding loud, and
+their voices, as they talked, ringing clear upon the silence of the air.
+The great round moon was floating breathlessly up in the eastern sky
+when they saw before them the twinkling lights of Barnet Town, some ten
+or twelve miles from London. Down they walked through the stony streets
+and past the cosy houses with overhanging gables, before the doors of
+which sat the burghers and craftsmen in the mellow moonlight, with
+their families about them, and so came at last, on the other side of
+the hamlet, to a little inn, all shaded with roses and woodbines. Before
+this inn Robin Hood stopped, for the spot pleased him well. Quoth he,
+"Here will we take up our inn and rest for the night, for we are well
+away from London Town and our King's wrath. Moreover, if I mistake not,
+we will find sweet faring within. What say ye, lads?"
+</block>
+    <block id="d39ea104-c171-4797-b1bb-5258be51acf6" ref="id_2H_4_0020.p10" kind="paragraph" ordinal="10" anchor-id="a884abed-a8d8-42ab-a18e-304d34ed2403" source-offset="10">
+"In sooth, good master," quoth Little John, "thy bidding and my doing
+ever fit together like cakes and ale. Let us in, I say also."
+</block>
+    <block id="c991f5f1-1438-4ee2-89c8-548cfc863c74" ref="id_2H_4_0020.p11" kind="paragraph" ordinal="11" anchor-id="5afdb002-7d4c-4307-866b-f17fbbc6d84b" source-offset="11">
+Then up spake Will Scarlet: "I am ever ready to do what thou sayest,
+uncle, yet I could wish that we were farther upon our way ere we rest
+for the night. Nevertheless, if thou thinkest best, let us in for the
+night, say I also."
+</block>
+    <block id="bf134aa5-c181-40c8-9691-d440698b625c" ref="id_2H_4_0020.p12" kind="paragraph" ordinal="12" anchor-id="310db347-9baf-4665-b923-3c3a5d9981e5" source-offset="12">
+So in they went and called for the best that the place afforded. Then a
+right good feast was set before them, with two stout bottles of old sack
+to wash it down withal. These things were served by as plump and buxom a
+lass as you could find in all the land, so that Little John, who always
+had an eye for a fair lass, even when meat and drink were by, stuck his
+arms akimbo and fixed his eyes upon her, winking sweetly whenever he saw
+her looking toward him. Then you should have seen how the lass twittered
+with laughter, and how she looked at Little John out of the corners of
+her eyes, a dimple coming in either cheek; for the fellow had always a
+taking way with the womenfolk.
+</block>
+    <block id="3427267b-d66f-4e82-896d-67ab88c5a6b8" ref="id_2H_4_0020.p13" kind="paragraph" ordinal="13" anchor-id="e319efa4-9cfa-4c80-876c-19005efea54e" source-offset="13">
+So the feast passed merrily, and never had that inn seen such lusty
+feeders as these four stout fellows; but at last they were done their
+eating, though it seemed as though they never would have ended, and
+sat loitering over the sack. As they so sat, the landlord came in of
+a sudden, and said that there was one at the door, a certain young
+esquire, Richard Partington, of the Queen's household, who wished to
+see the lad in blue, and speak with him, without loss of time. So Robin
+arose quickly, and, bidding the landlord not to follow him, left the
+others gazing at one another, and wondering what was about to happen.
+</block>
+    <block id="f9faf0f7-c4dd-4e41-9f06-5e13ccdda34a" ref="id_2H_4_0020.p14" kind="paragraph" ordinal="14" anchor-id="ab209623-3b79-4a5c-b877-a5de7892ca21" source-offset="14">
+When Robin came out of the inn, he found young Richard Partington
+sitting upon his horse in the white moonlight, awaiting his coming.
+</block>
+    <block id="536e2a43-d4ad-4fd4-9c3e-78b8658032c5" ref="id_2H_4_0020.p15" kind="paragraph" ordinal="15" anchor-id="41650f24-9b8e-40b6-a84b-bb664db6e2a6" source-offset="15">
+"What news bearest thou, Sir Page?" said Robin. "I trust that it is not
+of an ill nature."
+</block>
+    <block id="a18d94ad-c214-4e8a-8776-8914b8638506" ref="id_2H_4_0020.p16" kind="paragraph" ordinal="16" anchor-id="e904f0a0-cf11-46ca-bc7f-0921a143224e" source-offset="16">
+"Why," said young Partington, "for the matter of that, it is ill enow.
+The King hath been bitterly stirred up against thee by that vile Bishop
+of Hereford. He sent to arrest thee at the archery butts at Finsbury
+Fields, but not finding thee there, he hath gathered together his armed
+men, fifty-score and more, and is sending them in haste along this very
+road to Sherwood, either to take thee on the way or to prevent thy
+getting back to the woodlands again. He hath given the Bishop of
+Hereford command over all these men, and thou knowest what thou hast
+to expect of the Bishop of Hereford—short shrift and a long rope. Two
+bands of horsemen are already upon the road, not far behind me, so
+thou hadst best get thee gone from this place straightway, for, if thou
+tarriest longer, thou art like to sleep this night in a cold dungeon.
+This word the Queen hath bidden me bring to thee."
+</block>
+    <block id="1af3a36b-6171-4343-9ccf-68fc406896b0" ref="id_2H_4_0020.p17" kind="paragraph" ordinal="17" anchor-id="6c49a970-f3d5-44fa-a18e-ad1399cf340c" source-offset="17">
+"Now, Richard Partington," quoth Robin, "this is the second time that
+thou hast saved my life, and if the proper time ever cometh I will show
+thee that Robin Hood never forgets these things. As for that Bishop of
+Hereford, if I ever catch him nigh to Sherwood again, things will be
+like to go ill with him. Thou mayst tell the good Queen that I will
+leave this place without delay, and will let the landlord think that we
+are going to Saint Albans; but when we are upon the highroad again, I
+will go one way through the country and will send my men the other, so
+that if one falleth into the King's hands the others may haply escape.
+We will go by devious ways, and so, I hope, will reach Sherwood in
+safety. And now, Sir Page, I wish thee farewell."
+</block>
+    <block id="ecd82eab-7bd4-418d-b7eb-a44dad024ef6" ref="id_2H_4_0020.p18" kind="paragraph" ordinal="18" anchor-id="57c1a7f0-7731-40e2-8d0d-f44c359ca129" source-offset="18">
+"Farewell, thou bold yeoman," said young Partington, "and mayst thou
+reach thy hiding in safety." So each shook the other's hand, and the
+lad, turning his horse's head, rode back toward London, while Robin
+entered the inn once more.
+</block>
+    <block id="e1caa159-256b-4716-bc13-8efe977a8ddf" ref="id_2H_4_0020.p19" kind="paragraph" ordinal="19" anchor-id="4dbd0991-6053-4f22-af99-792ac1cd4a1c" source-offset="19">
+There he found his yeomen sitting in silence, waiting his coming;
+likewise the landlord was there, for he was curious to know what Master
+Partington had to do with the fellow in blue. "Up, my merry men!" quoth
+Robin, "this is no place for us, for those are after us with whom we
+will stand but an ill chance an we fall into their hands. So we will
+go forward once more, nor will we stop this night till we reach Saint
+Albans." Hereupon, taking out his purse, he paid the landlord his score,
+and so they left the inn.
+</block>
+    <block id="7ec96eac-1b3f-4e7f-9195-6bca06278e59" ref="id_2H_4_0020.p20" kind="paragraph" ordinal="20" anchor-id="ced643b4-9d97-4ecc-8cc9-348182eccaec" source-offset="20">
+When they had come to the highroad without the town, Robin stopped and
+told them all that had passed between young Partington and himself, and
+how that the King's men were after them with hot heels. Then he told
+them that here they should part company; they three going to the
+eastward and he to the westward, and so, skirting the main highroads,
+would come by devious paths to Sherwood. "So, be ye wily," said Robin
+Hood, "and keep well away from the northward roads till ye have gotten
+well to the eastward. And thou, Will Scarlet, take the lead of the
+others, for thou hast a cunning turn to thy wits." Then Robin kissed the
+three upon the cheeks, and they kissed him, and so they parted company.
+</block>
+    <block id="88129efb-e396-466d-be3c-e7a198ceb31e" ref="id_2H_4_0020.p21" kind="paragraph" ordinal="21" anchor-id="7563079b-6c5b-4f56-a596-70ec9687fb2b" source-offset="21">
+Not long after this, a score or more of the King's men came clattering
+up to the door of the inn at Barnet Town. Here they leaped from their
+horses and quickly surrounded the place, the leader of the band and four
+others entering the room where the yeomen had been. But they found that
+their birds had flown again, and that the King had been balked a second
+time.
+</block>
+    <block id="52fa52cf-fa14-461a-8d93-b1146fc3ce2c" ref="id_2H_4_0020.p22" kind="paragraph" ordinal="22" anchor-id="4c8bc20e-b52f-48c0-8a3c-c4ed0a140a0a" source-offset="22">
+"Methought that they were naughty fellows," said the host, when he heard
+whom the men-at-arms sought. "But I heard that blue-clad knave say that
+they would go straight forward to Saint Albans; so, an ye hurry forward,
+ye may, perchance, catch them on the highroad betwixt here and there."
+For this news the leader of the band thanked mine host right heartily,
+and, calling his men together, mounted and set forth again, galloping
+forward to Saint Albans upon a wild goose chase.
+</block>
+    <block id="5f8d6641-6b22-420c-a3d9-a1044017ef80" ref="id_2H_4_0020.p23" kind="paragraph" ordinal="23" anchor-id="8ae45aba-ac9c-428d-bcbe-8b8bce7a0bea" source-offset="23">
+After Little John and Will Scarlet and Allan a Dale had left the highway
+near garnet, they traveled toward the eastward, without stopping, as
+long as their legs could carry them, until they came to Chelmsford,
+in Essex. Thence they turned northward, and came through Cambridge and
+Lincolnshire, to the good town of Gainsborough. Then, striking to the
+westward and the south, they came at last to the northern borders of
+Sherwood Forest, without in all that time having met so much as a single
+band of the King's men. Eight days they journeyed thus ere they reached
+the woodlands in safety, but when they got to the greenwood glade, they
+found that Robin had not yet returned.
+</block>
+    <block id="f7f32fd4-a23f-45e6-b2b8-583a6ea0fb80" ref="id_2H_4_0020.p24" kind="paragraph" ordinal="24" anchor-id="7ac54c12-f542-45e3-a307-e42d281ffc4b" source-offset="24">
+For Robin was not as lucky in getting back as his men had been, as you
+shall presently hear.
+</block>
+    <block id="c8832648-7c75-43be-aaa9-1fc6b4619cff" ref="id_2H_4_0020.p25" kind="paragraph" ordinal="25" anchor-id="3a059084-4937-4f87-94ed-55a86a2d7c0e" source-offset="25">
+After having left the great northern road, he turned his face to the
+westward, and so came past Aylesbury, to fair Woodstock, in Oxfordshire.
+Thence he turned his footsteps northward, traveling for a great distance
+by way of Warwick Town, till he came to Dudley, in Staffordshire. Seven
+days it took him to journey thus far, and then he thought he had gotten
+far enough to the north, so, turning toward the eastward, shunning the
+main roads, and choosing byways and grassy lanes, he went, by way of
+Litchfield and Ashby de la Zouch, toward Sherwood, until he came to a
+place called Stanton. And now Robin's heart began to laugh aloud, for
+he thought that his danger had gone by, and that his nostrils would soon
+snuff the spicy air of the woodlands once again. But there is many a
+slip betwixt the cup and the lip, and this Robin was to find. For thus
+it was:
+</block>
+    <block id="3db08fe1-39c6-4445-8e27-0b7b3cce37a1" ref="id_2H_4_0020.p26" kind="paragraph" ordinal="26" anchor-id="a69f3c80-9aad-42e3-a8e0-d06eb7a028c2" source-offset="26">
+When the King's men found themselves foiled at Saint Albans, and that
+Robin and his men were not to be found high nor low, they knew not what
+to do. Presently another band of horsemen came, and another, until all
+the moonlit streets were full of armed men. Betwixt midnight and
+dawn another band came to the town, and with them came the Bishop of
+Hereford. When he heard that Robin Hood had once more slipped out of
+the trap, he stayed not a minute, but, gathering his bands together, he
+pushed forward to the northward with speed, leaving orders for all the
+troops that came to Saint Albans to follow after him without tarrying.
+On the evening of the fourth day he reached Nottingham Town, and there
+straightway divided his men into bands of six or seven, and sent them
+all through the countryside, blocking every highway and byway to the
+eastward and the southward and the westward of Sherwood. The Sheriff
+of Nottingham called forth all his men likewise, and joined with the
+Bishop, for he saw that this was the best chance that had ever befallen
+of paying back his score in full to Robin Hood. Will Scarlet and Little
+John and Allan a Dale had just missed the King's men to the eastward,
+for the very next day after they had passed the line and entered
+Sherwood the roads through which they had traveled were blocked, so
+that, had they tarried in their journeying, they would surely have
+fallen into the Bishop's hands.
+</block>
+    <block id="ddc07ac5-c3e8-4d23-b29c-ac554d922703" ref="id_2H_4_0020.p27" kind="paragraph" ordinal="27" anchor-id="b064c274-ccaf-4e10-b8c8-d4cbe9f1ce82" source-offset="27">
+But of all this Robin knew not a whit; so he whistled merrily as he
+trudged along the road beyond Stanton, with his heart as free from care
+as the yolk of an egg is from cobwebs. At last he came to where a little
+stream spread across the road in a shallow sheet, tinkling and sparkling
+as it fretted over its bed of golden gravel. Here Robin stopped, being
+athirst, and, kneeling down, he made a cup of the palms of his hands,
+and began to drink. On either side of the road, for a long distance,
+stood tangled thickets of bushes and young trees, and it pleased Robin's
+heart to hear the little birds singing therein, for it made him think
+of Sherwood, and it seemed as though it had been a lifetime since he had
+breathed the air of the woodlands. But of a sudden, as he thus stooped,
+drinking, something hissed past his ear, and struck with a splash into
+the gravel and water beside him. Quick as a wink Robin sprang to his
+feet, and, at one bound, crossed the stream and the roadside, and
+plunged headlong into the thicket, without looking around, for he knew
+right well that that which had hissed so venomously beside his ear was
+a gray goose shaft, and that to tarry so much as a moment meant death.
+Even as he leaped into the thicket six more arrows rattled among the
+branches after him, one of which pierced his doublet, and would have
+struck deeply into his side but for the tough coat of steel that he
+wore. Then up the road came riding some of the King's men at headlong
+speed. They leaped from their horses and plunged straightway into the
+thicket after Robin. But Robin knew the ground better than they did,
+so crawling here, stooping there, and, anon, running across some little
+open, he soon left them far behind, coming out, at last, upon another
+road about eight hundred paces distant from the one he had left. Here he
+stood for a moment, listening to the distant shouts of the seven men
+as they beat up and down in the thickets like hounds that had lost the
+scent of the quarry. Then, buckling his belt more tightly around his
+waist, he ran fleetly down the road toward the eastward and Sherwood.
+</block>
+    <block id="e4c281b0-fb3c-4568-9ca2-275a0a54965a" ref="id_2H_4_0020.p28" kind="paragraph" ordinal="28" anchor-id="8164b152-21c0-4154-b934-8e7389199df8" source-offset="28">
+But Robin had not gone more than three furlongs in that direction when
+he came suddenly to the brow of a hill, and saw beneath him another band
+of the King's men seated in the shade along the roadside in the valley
+beneath. Then he paused not a moment, but, seeing that they had not
+caught sight of him, he turned and ran back whence he had come, knowing
+that it was better to run the chance of escaping those fellows that were
+yet in the thickets than to rush into the arms of those in the valley.
+So back he ran with all speed, and had gotten safely past the thickets,
+when the seven men came forth into the open road. They raised a great
+shout when they saw him, such as the hunter gives when the deer breaks
+cover, but Robin was then a quarter of a mile and more away from them,
+coursing over the ground like a greyhound. He never slackened his pace,
+but ran along, mile after mile, till he had come nigh to Mackworth, over
+beyond the Derwent River, nigh to Derby Town. Here, seeing that he was
+out of present danger, he slackened in his running, and at last sat him
+down beneath a hedge where the grass was the longest and the shade the
+coolest, there to rest and catch his wind. "By my soul, Robin," quoth he
+to himself, "that was the narrowest miss that e'er thou hadst in all
+thy life. I do say most solemnly that the feather of that wicked shaft
+tickled mine ear as it whizzed past. This same running hath given me a
+most craving appetite for victuals and drink. Now I pray Saint Dunstan
+that he send me speedily some meat and beer."
+</block>
+    <block id="aed57ec7-c633-481d-a560-a3128a7f9b45" ref="id_2H_4_0020.p29" kind="paragraph" ordinal="29" anchor-id="19fe951f-99bb-432c-a9e2-d0737dfdb7fe" source-offset="29">
+It seemed as though Saint Dunstan was like to answer his prayer, for
+along the road came plodding a certain cobbler, one Quince, of Derby,
+who had been to take a pair of shoes to a farmer nigh Kirk Langly, and
+was now coming back home again, with a fair boiled capon in his pouch
+and a stout pottle of beer by his side, which same the farmer had given
+him for joy of such a stout pair of shoon. Good Quince was an honest
+fellow, but his wits were somewhat of the heavy sort, like unbaked
+dough, so that the only thing that was in his mind was, "Three shillings
+sixpence ha'penny for thy shoon, good Quince—three shillings sixpence
+ha'penny for thy shoon," and this traveled round and round inside of his
+head, without another thought getting into his noddle, as a pea rolls
+round and round inside an empty quart pot.
+</block>
+    <block id="5126c0f3-0615-44d0-bb9a-06b64e004393" ref="id_2H_4_0020.p30" kind="paragraph" ordinal="30" anchor-id="bf4ee033-65e6-4219-ab98-f8b1595bd6bd" source-offset="30">
+"Halloa, good friend," quoth Robin, from beneath the hedge, when the
+other had gotten nigh enough, "whither away so merrily this bright day?"
+</block>
+    <block id="bb3c896e-2fa6-451f-8a19-21d1d0971302" ref="id_2H_4_0020.p31" kind="paragraph" ordinal="31" anchor-id="1e43717d-2d90-45d8-a631-3712cce16867" source-offset="31">
+Hearing himself so called upon, the Cobbler stopped, and, seeing a
+well-clad stranger in blue, he spoke to him in seemly wise. "Give ye
+good den, fair sir, and I would say that I come from Kirk Langly, where
+I ha' sold my shoon and got three shillings sixpence ha'penny for them
+in as sweet money as ever thou sawest, and honestly earned too, I would
+ha' thee know. But an I may be so bold, thou pretty fellow, what dost
+thou there beneath the hedge?"
+</block>
+    <block id="bdb61b0a-67c4-4ed7-8088-d89f1c991674" ref="id_2H_4_0020.p32" kind="paragraph" ordinal="32" anchor-id="05454f8a-5d0f-458d-ada0-aaf24882d0c3" source-offset="32">
+"Marry," quoth merry Robin, "I sit beneath the hedge here to drop salt
+on the tails of golden birds; but in sooth thou art the first chick of
+any worth I ha' seen this blessed day."
+</block>
+    <block id="25182d75-5e2e-4f48-bcc0-7c6ba0c3df0f" ref="id_2H_4_0020.p33" kind="paragraph" ordinal="33" anchor-id="8b018635-7dc1-41cd-831a-53daf877a235" source-offset="33">
+At these words the Cobbler's eyes opened big and wide, and his mouth
+grew round with wonder, like a knothole in a board fence, "slack-a-day,"
+quoth he, "look ye, now! I ha' never seen those same golden birds. And
+dost thou in sooth find them in these hedges, good fellow? Prythee, tell
+me, are there many of them? I would fain find them mine own self."
+</block>
+    <block id="14970bc3-730b-4723-b905-141f54a53422" ref="id_2H_4_0020.p34" kind="paragraph" ordinal="34" anchor-id="724f4578-98c2-451a-a38e-0429cb98bb6b" source-offset="34">
+"Ay, truly," quoth Robin, "they are as thick here as fresh herring in
+Cannock Chase."
+</block>
+    <block id="3f7c2ec6-c956-4297-bbdc-43d0b5cf3506" ref="id_2H_4_0020.p35" kind="paragraph" ordinal="35" anchor-id="b9474b4f-87b2-4296-9460-85fbd6efabda" source-offset="35">
+"Look ye, now!" said the Cobbler, all drowned in wonder. "And dost thou
+in sooth catch them by dropping salt on their pretty tails?"
+</block>
+    <block id="b5adf028-c035-4eec-96d1-4bb143862c5f" ref="id_2H_4_0020.p36" kind="paragraph" ordinal="36" anchor-id="de9e9fa2-deee-4b32-9202-0559ae6fe644" source-offset="36">
+"Yea," quoth Robin, "but this salt is of an odd kind, let me tell thee,
+for it can only be gotten by boiling down a quart of moonbeams in a
+wooden platter, and then one hath but a pinch. But tell me, now, thou
+witty man, what hast thou gotten there in that pouch by thy side and in
+that pottle?"
+</block>
+    <block id="12f1eba7-1c63-4204-aaee-c216b756cbef" ref="id_2H_4_0020.p37" kind="paragraph" ordinal="37" anchor-id="951fbf53-32e3-4477-bc63-dd18ade749a4" source-offset="37">
+At these words the Cobbler looked down at those things of which merry
+Robin spoke, for the thoughts of the golden bird had driven them from
+his mind, and it took him some time to scrape the memory of them back
+again. "Why," said he at last, "in the one is good March beer, and in
+the other is a fat capon. Truly, Quince the Cobbler will ha' a fine
+feast this day an I mistake not."
+</block>
+    <block id="cc845f19-c047-471b-beaa-f440dca39964" ref="id_2H_4_0020.p38" kind="paragraph" ordinal="38" anchor-id="34282bf7-4903-468e-b5b1-16ee37ce52dc" source-offset="38">
+"But tell me, good Quince," said Robin, "hast thou a mind to sell those
+things to me? For the hearing of them sounds sweet in mine ears. I will
+give thee these gay clothes of blue that I have upon my body and ten
+shillings to boot for thy clothes and thy leather apron and thy beer and
+thy capon. What sayst thou, bully boy?"
+</block>
+    <block id="8da95a20-72d3-4768-aaf7-ff6192433c53" ref="id_2H_4_0020.p39" kind="paragraph" ordinal="39" anchor-id="04f4668b-712b-4e01-8746-78edb0035448" source-offset="39">
+"Nay, thou dost jest with me," said the Cobbler, "for my clothes are
+coarse and patched, and thine are of fine stuff and very pretty."
+</block>
+    <block id="62a5254a-6867-4209-bc57-40c0cdf359f2" ref="id_2H_4_0020.p40" kind="paragraph" ordinal="40" anchor-id="2bc28fce-5b73-42ec-a948-fa9b8e6d02cc" source-offset="40">
+"Never a jest do I speak," quoth Robin. "Come, strip thy jacket off and
+I will show thee, for I tell thee I like thy clothes well. Moreover, I
+will be kind to thee, for I will feast straightway upon the good things
+thou hast with thee, and thou shalt be bidden to the eating." At these
+words he began slipping off his doublet, and the Cobbler, seeing him so
+in earnest, began pulling off his clothes also, for Robin Hood's garb
+tickled his eye. So each put on the other fellow's clothes, and Robin
+gave the honest Cobbler ten bright new shillings. Quoth merry Robin,
+"I ha' been a many things in my life before, but never have I been an
+honest cobbler. Come, friend, let us fall to and eat, for something
+within me cackles aloud for that good fat capon." So both sat down and
+began to feast right lustily, so that when they were done the bones of
+the capon were picked as bare as charity.
+</block>
+    <block id="1111ea33-3a2c-4983-a44c-8117dee47ec6" ref="id_2H_4_0020.p41" kind="paragraph" ordinal="41" anchor-id="420f8524-06e5-4775-be8a-81f02ee6ef6d" source-offset="41">
+Then Robin stretched his legs out with a sweet feeling of comfort within
+him. Quoth he, "By the turn of thy voice, good Quince, I know that
+thou hast a fair song or two running loose in thy head like colts in a
+meadow. I prythee, turn one of them out for me."
+</block>
+    <block id="3dced5a4-3c95-41c0-aa10-00076a246248" ref="id_2H_4_0020.p42" kind="paragraph" ordinal="42" anchor-id="8df64bc4-b60a-4b0b-88e4-bdcc8d0ae95e" source-offset="42">
+"A song or two I ha'," quoth the Cobbler, "poor things, poor things, but
+such as they are thou art welcome to one of them." So, moistening his
+throat with a swallow of beer, he sang:
+</block>
+    <block id="a543fcdf-f7eb-4f46-864e-0b656a679f60" ref="id_2H_4_0020.p43" kind="verse-line" ordinal="43" anchor-id="65b4c788-45ce-408e-885d-149cb3e2a23a" source-offset="43">"Of all the joys, the best I love,</block>
+    <block id="95b5b004-f61d-440d-bd3c-22fdef2ddaff" ref="id_2H_4_0020.p44" kind="verse-line" ordinal="44" anchor-id="958935c5-fff0-460c-9504-be1acb41bc26" source-offset="44">     Sing hey my frisking Nan, O,</block>
+    <block id="5997b87f-fb65-48b1-a6e1-58875cc0bb30" ref="id_2H_4_0020.p45" kind="verse-line" ordinal="45" anchor-id="0a4c7735-1194-49b9-97d7-44f68825c94a" source-offset="45">     And that which most my soul doth move,</block>
+    <block id="8576861a-2f50-4105-b44e-f2428fcbd4b3" ref="id_2H_4_0020.p46" kind="verse-line" ordinal="46" anchor-id="ffc80779-4732-41c5-9456-ccdb82a73dc3" source-offset="46">     It is the clinking can, O.</block>
+    <block id="01a00dbf-40a0-7d8c-9756-4c77ccd6f1bd" ref="id_2H_4_0020.p46a" kind="stanza-break" ordinal="46.5" anchor-id="01a00dbf-40a0-7d90-97e8-dbd6655c48d5" source-offset="0" text-form="plain"></block>
+    <block id="19b9ab97-03b1-4017-b72e-6aa57c1075da" ref="id_2H_4_0020.p47" kind="verse-line" ordinal="47" anchor-id="e7d4bf1c-5a1c-4a78-9c43-ed59752e89e3" source-offset="47">     "All other bliss I'd throw away,</block>
+    <block id="0b809c78-33c1-4c40-9c59-6a1c4d35dffc" ref="id_2H_4_0020.p48" kind="verse-line" ordinal="48" anchor-id="2a4743ad-f8a4-4b05-97de-b70edf91c9bf" source-offset="48">     Sing hey my frisking Nan, O,</block>
+    <block id="c84b10b8-bf3e-447c-8521-544139681727" ref="id_2H_4_0020.p49" kind="verse-line" ordinal="49" anchor-id="86bd20a7-266d-4948-b450-1ca2e45aaa86" source-offset="49">     But this—"</block>
+    <block id="65688902-5ddd-41ec-be00-8bf8454c35b4" ref="id_2H_4_0020.p50" kind="paragraph" ordinal="50" anchor-id="214830f5-bd2f-426a-95da-838f40e80503" source-offset="50">
+The stout Cobbler got no further in his song, for of a sudden six
+horsemen burst upon them where they sat, and seized roughly upon the
+honest craftsman, hauling him to his feet, and nearly plucking the
+clothes from him as they did so. "Ha!" roared the leader of the band
+in a great big voice of joy, "have we then caught thee at last, thou
+blue-clad knave? Now, blessed be the name of Saint Hubert, for we are
+fourscore pounds richer this minute than we were before, for the good
+Bishop of Hereford hath promised that much to the band that shall bring
+thee to him. Oho! thou cunning rascal! thou wouldst look so innocent,
+forsooth! We know thee, thou old fox. But off thou goest with us to have
+thy brush clipped forthwith." At these words the poor Cobbler gazed all
+around him with his great blue eyes as round as those of a dead fish,
+while his mouth gaped as though he had swallowed all his words and so
+lost his speech.
+</block>
+    <block id="c2310edf-130a-4eb7-b8b3-88d402d6f0f6" ref="id_2H_4_0020.p51" kind="paragraph" ordinal="51" anchor-id="2b82fa37-6208-4c40-b589-11dbbf3e2792" source-offset="51">
+Robin also gaped and stared in a wondering way, just as the Cobbler
+would have done in his place. "Alack-a-daisy, me," quoth he. "I know
+not whether I be sitting here or in No-man's-land! What meaneth all this
+stir i' th' pot, dear good gentlemen? Surely this is a sweet, honest
+fellow."
+</block>
+    <block id="c9e7e97a-4c8b-4135-96ed-09e06fb61ef5" ref="id_2H_4_0020.p52" kind="paragraph" ordinal="52" anchor-id="e399ba3c-2cae-4ad2-8806-ce902cc33aca" source-offset="52">
+"'Honest fellow,' sayst thou, clown?" quoth one of the men "Why, I tell
+thee that this is that same rogue that men call Robin Hood."
+</block>
+    <block id="e6f26a78-8384-4228-916c-c7dbc768fcd8" ref="id_2H_4_0020.p53" kind="paragraph" ordinal="53" anchor-id="e577e5b1-256e-4292-b78b-1c0d9e7332ab" source-offset="53">
+At this speech the Cobbler stared and gaped more than ever, for there
+was such a threshing of thoughts going on within his poor head that his
+wits were all befogged with the dust and chaff thereof. Moreover, as
+he looked at Robin Hood, and saw the yeoman look so like what he knew
+himself to be, he began to doubt and to think that mayhap he was the
+great outlaw in real sooth. Said he in a slow, wondering voice, "Am I
+in very truth that fellow?—Now I had thought—but nay, Quince, thou art
+mistook—yet—am I?—Nay, I must indeed be Robin Hood! Yet, truly, I had
+never thought to pass from an honest craftsman to such a great yeoman."
+</block>
+    <block id="4d3496b5-8fcb-422d-b433-774f299c43cd" ref="id_2H_4_0020.p54" kind="paragraph" ordinal="54" anchor-id="904c266a-1da1-4f5a-975c-ea60979fa71e" source-offset="54">
+"Alas!" quoth Robin Hood, "look ye there, now! See how your
+ill-treatment hath curdled the wits of this poor lad and turned them all
+sour! I, myself, am Quince, the Cobbler of Derby Town."
+</block>
+    <block id="5adcaa38-a16f-44ea-8bff-240bdc2344ea" ref="id_2H_4_0020.p55" kind="paragraph" ordinal="55" anchor-id="fc1b4f9f-b501-4169-9409-27dadbd8e442" source-offset="55">
+"Is it so?" said Quince. "Then, indeed, I am somebody else, and can be
+none other than Robin Hood. Take me, fellows; but let me tell you that
+ye ha' laid hand upon the stoutest yeoman that ever trod the woodlands."
+</block>
+    <block id="56344120-e2b5-43c6-b93e-114c94fa9709" ref="id_2H_4_0020.p56" kind="paragraph" ordinal="56" anchor-id="fb4d7139-4141-4a93-a590-6a4742f22392" source-offset="56">
+"Thou wilt play madman, wilt thou?" said the leader of the band. "Here,
+Giles, fetch a cord and bind this knave's hands behind him. I warrant
+we will bring his wits back to him again when we get him safe before our
+good Bishop at Tutbury Town." Thereupon they tied the Cobbler's hands
+behind him, and led him off with a rope, as the farmer leads off the
+calf he hath brought from the fair. Robin stood looking after them, and
+when they were gone he laughed till the tears rolled down his cheeks;
+for he knew that no harm would befall the honest fellow, and he pictured
+to himself the Bishop's face when good Quince was brought before him
+as Robin Hood. Then, turning his steps once more to the eastward, he
+stepped out right foot foremost toward Nottinghamshire and Sherwood
+Forest.
+</block>
+    <block id="b4ef1aa5-86b9-44bc-a70a-2f9375e4ebbd" ref="id_2H_4_0020.p57" kind="paragraph" ordinal="57" anchor-id="b739a3fb-5c2c-4b02-8040-b5ccfa85c9d4" source-offset="57">
+But Robin Hood had gone through more than he wotted of. His journey
+from London had been hard and long, and in a se'ennight he had traveled
+sevenscore and more of miles. He thought now to travel on without
+stopping until he had come to Sherwood, but ere he had gone a half a
+score of miles he felt his strength giving way beneath him like a river
+bank which the waters have undermined. He sat him down and rested, but
+he knew within himself that he could go no farther that day, for his
+feet felt like lumps of lead, so heavy were they with weariness. Once
+more he arose and went forward, but after traveling a couple of miles
+he was fain to give the matter up, so, coming to an inn just then, he
+entered and calling the landlord, bade him show him to a room, although
+the sun was only then just sinking in the western sky. There were but
+three bedrooms in the place, and to the meanest of these the landlord
+showed Robin Hood, but little Robin cared for the looks of the place,
+for he could have slept that night upon a bed of broken stones. So,
+stripping off his clothes without more ado, he rolled into the bed and
+was asleep almost ere his head touched the pillow.
+</block>
+    <block id="bde65021-5568-4f4d-a92c-b916fbb16e40" ref="id_2H_4_0020.p58" kind="paragraph" ordinal="58" anchor-id="e53e72ea-844f-4e41-ac19-8cc89ceb62fe" source-offset="58">
+Not long after Robin had so gone to his rest a great cloud peeped
+blackly over the hills to the westward. Higher and higher it arose
+until it piled up into the night like a mountain of darkness. All around
+beneath it came ever and anon a dull red flash, and presently a short
+grim mutter of the coming thunder was heard. Then up rode four stout
+burghers of Nottingham Town, for this was the only inn within
+five miles' distance, and they did not care to be caught in such a
+thunderstorm as this that was coming upon them. Leaving their nags to
+the stableman, they entered the best room of the inn, where fresh green
+rushes lay all spread upon the floor, and there called for the goodliest
+fare that the place afforded. After having eaten heartily they bade the
+landlord show them to their rooms, for they were aweary, having ridden
+all the way from Dronfield that day. So off they went, grumbling at
+having to sleep two in a bed, but their troubles on this score, as well
+as all others, were soon lost in the quietness of sleep.
+</block>
+    <block id="405c5b48-e7ab-409b-8b02-b0e0be40c2a9" ref="id_2H_4_0020.p59" kind="paragraph" ordinal="59" anchor-id="e916c0d3-8ee9-40a1-8c55-fffa289da7b4" source-offset="59">
+And now came the first gust of wind, rushing past the place, clapping
+and banging the doors and shutters, smelling of the coming rain, and all
+wrapped in a cloud of dust and leaves. As though the wind had brought a
+guest along with it, the door opened of a sudden and in came a friar of
+Emmet Priory, and one in high degree, as was shown by the softness and
+sleekness of his robes and the richness of his rosary. He called to the
+landlord, and bade him first have his mule well fed and bedded in the
+stable, and then to bring him the very best there was in the house.
+So presently a savory stew of tripe and onions, with sweet little fat
+dumplings, was set before him, likewise a good stout pottle of
+Malmsey, and straightway the holy friar fell to with great courage and
+heartiness, so that in a short time nought was left but a little pool of
+gravy in the center of the platter, not large enow to keep the life in a
+starving mouse.
+</block>
+    <block id="13c1acd0-cb57-4608-822c-d3c82ae0a8a8" ref="id_2H_4_0020.p60" kind="paragraph" ordinal="60" anchor-id="ac78c2e2-8eef-4bae-abf8-7835a80df1f2" source-offset="60">
+In the meantime the storm broke. Another gust of wind went rushing
+by, and with it fell a few heavy drops of rain, which presently came
+rattling down in showers, beating against the casements like a hundred
+little hands. Bright flashes of lightning lit up every raindrop, and
+with them came cracks of thunder that went away rumbling and bumping as
+though Saint Swithin were busy rolling great casks of water across rough
+ground overhead. The womenfolks screamed, and the merry wags in
+the taproom put their arms around their waists to soothe them into
+quietness.
+</block>
+    <block id="093dde77-0132-4a00-b0a8-ae4bbdadb868" ref="id_2H_4_0020.p61" kind="paragraph" ordinal="61" anchor-id="bb8fed85-6732-4321-9493-c7cee4256161" source-offset="61">
+At last the holy friar bade the landlord show him to his room; but when
+he heard that he was to bed with a cobbler, he was as ill contented a
+fellow as you could find in all England, nevertheless there was nothing
+for it, and he must sleep there or nowhere; so, taking up his candle,
+he went off, grumbling like the now distant thunder. When he came to the
+room where he was to sleep he held the light over Robin and looked at
+him from top to toe; then he felt better pleased, for, instead, of a
+rough, dirty-bearded fellow, he beheld as fresh and clean a lad as one
+could find in a week of Sundays; so, slipping off his clothes, he also
+huddled into the bed, where Robin, grunting and grumbling in his sleep,
+made room for him. Robin was more sound asleep, I wot, than he had been
+for many a day, else he would never have rested so quietly with one of
+the friar's sort so close beside him. As for the friar, had he known who
+Robin Hood was, you may well believe he would almost as soon have slept
+with an adder as with the man he had for a bedfellow.
+</block>
+    <block id="1bea9dc3-730c-44ba-b77e-8a03d10d8b3a" ref="id_2H_4_0020.p62" kind="paragraph" ordinal="62" anchor-id="f3cda970-e000-40d8-bb4a-1d1db9683c01" source-offset="62">
+So the night passed comfortably enough, but at the first dawn of day
+Robin opened his eyes and turned his head upon the pillow. Then how he
+gaped and how he stared, for there beside him lay one all shaven and
+shorn, so that he knew that it must be a fellow in holy orders. He
+pinched himself sharply, but, finding he was awake, sat up in bed, while
+the other slumbered as peacefully as though he were safe and sound at
+home in Emmet Priory. "Now," quoth Robin to himself, "I wonder how this
+thing hath dropped into my bed during the night." So saying, he arose
+softly, so as not to waken the other, and looking about the room he
+espied the friar's clothes lying upon a bench near the wall. First he
+looked at the clothes, with his head on one side, and then he looked
+at the friar and slowly winked one eye. Quoth he, "Good Brother
+What-e'er-thy-name-may-be, as thou hast borrowed my bed so freely I'll
+e'en borrow thy clothes in return." So saying, he straightway donned the
+holy man's garb, but kindly left the cobbler's clothes in the place
+of it. Then he went forth into the freshness of the morning, and the
+stableman that was up and about the stables opened his eyes as though he
+saw a green mouse before him, for such men as the friars of Emmet were
+not wont to be early risers; but the man bottled his thoughts, and only
+asked Robin whether he wanted his mule brought from the stable.
+</block>
+    <block id="34649100-cb25-4868-9f8f-8f60dc6a16e2" ref="id_2H_4_0020.p63" kind="paragraph" ordinal="63" anchor-id="f21cadce-a9f6-44af-90c8-2f569df27bef" source-offset="63">
+"Yea, my son," quoth Robin—albeit he knew nought of the mule—"and
+bring it forth quickly, I prythee, for I am late and must be jogging."
+So presently the stableman brought forth the mule, and Robin mounted it
+and went on his way rejoicing.
+</block>
+    <block id="0216869c-c0b3-4e15-9eb9-29d6edf933a8" ref="id_2H_4_0020.p64" kind="paragraph" ordinal="64" anchor-id="10e96b37-7494-4a59-8114-6089336b77ad" source-offset="64">
+As for the holy friar, when he arose he was in as pretty a stew as any
+man in all the world, for his rich, soft robes were gone, likewise his
+purse with ten golden pounds in it, and nought was left but patched
+clothes and a leathern apron. He raged and swore like any layman, but as
+his swearing mended nothing and the landlord could not aid him, and as,
+moreover, he was forced to be at Emmet Priory that very morning upon
+matters of business, he was fain either to don the cobbler's clothes
+or travel the road in nakedness. So he put on the clothes, and, still
+raging and swearing vengeance against all the cobblers in Derbyshire,
+he set forth upon his way afoot; but his ills had not yet done with him,
+for he had not gone far ere he fell into the hands of the King's men,
+who marched him off, willy-nilly, to Tutbury Town and the Bishop of
+Hereford. In vain he swore he was a holy man, and showed his shaven
+crown; off he must go, for nothing would do but that he was Robin Hood.
+</block>
+    <block id="a7365c81-e670-4610-bd63-725b2e0556a6" ref="id_2H_4_0020.p65" kind="paragraph" ordinal="65" anchor-id="46253777-9876-4e9c-bc23-8ec853e2a389" source-offset="65">
+Meanwhile merry Robin rode along contentedly, passing safely by two
+bands of the King's men, until his heart began to dance within him
+because of the nearness of Sherwood; so he traveled ever on to the
+eastward, till, of a sudden, he met a noble knight in a shady lane. Then
+Robin checked his mule quickly and leaped from off its back. "Now, well
+met, Sir Richard of the Lea," cried he, "for rather than any other man
+in England would I see thy good face this day!" Then he told Sir Richard
+all the happenings that had befallen him, and that now at last he felt
+himself safe, being so nigh to Sherwood again. But when Robin had done,
+Sir Richard shook his head sadly. "Thou art in greater danger now,
+Robin, than thou hast yet been," said he, "for before thee lie bands of
+the Sheriff's men blocking every road and letting none pass through the
+lines without examining them closely. I myself know this, having passed
+them but now. Before thee lie the Sheriffs men and behind thee the
+King's men, and thou canst not hope to pass either way, for by this
+time they will know of thy disguise and will be in waiting to seize upon
+thee. My castle and everything within it are thine, but nought could be
+gained there, for I could not hope to hold it against such a force as is
+now in Nottingham of the King's and the Sheriffs men." Having so spoken,
+Sir Richard bent his head in thought, and Robin felt his heart sink
+within him like that of the fox that hears the hounds at his heels and
+finds his den blocked with earth so that there is no hiding for him.
+But presently Sir Richard spoke again, saying, "One thing thou canst do,
+Robin, and one only. Go back to London and throw thyself upon the mercy
+of our good Queen Eleanor. Come with me straightway to my castle. Doff
+these clothes and put on such as my retainers wear. Then I will hie me
+to London Town with a troop of men behind me, and thou shalt mingle with
+them, and thus will I bring thee to where thou mayst see and speak with
+the Queen. Thy only hope is to get to Sherwood, for there none can reach
+thee, and thou wilt never get to Sherwood but in this way."
+</block>
+    <block id="b1c12b74-273a-42d0-a5ac-4e3bc34de164" ref="id_2H_4_0020.p66" kind="paragraph" ordinal="66" anchor-id="f25e7081-91ab-4b71-820d-450db0557a19" source-offset="66">
+So Robin went with Sir Richard of the Lea, and did as he said, for he
+saw the wisdom of that which the knight advised, and that this was his
+only chance of safety.
+</block>
+    <block id="1b88077f-943a-4283-b830-34d9f36da0d6" ref="id_2H_4_0020.p67" kind="paragraph" ordinal="67" anchor-id="1a3eb387-dcfd-44d3-81f8-136fe889a4b8" source-offset="67">
+Queen Eleanor walked in her royal garden, amid the roses that bloomed
+sweetly, and with her walked six of her ladies-in-waiting, chattering
+blithely together. Of a sudden a man leaped up to the top of the wall
+from the other side, and then, hanging for a moment, dropped lightly
+upon the grass within. All the ladies-in-waiting shrieked at the
+suddenness of his coming, but the man ran to the Queen and kneeled at
+her feet, and she saw that it was Robin Hood.
+</block>
+    <block id="e004dea6-d5b0-41fb-9f95-6327a2957e63" ref="id_2H_4_0020.p68" kind="paragraph" ordinal="68" anchor-id="35d8147c-cfc3-40ee-9334-c018195ce881" source-offset="68">
+"Why, how now, Robin!" cried she, "dost thou dare to come into the very
+jaws of the raging lion? Alas, poor fellow! Thou art lost indeed if the
+King finds thee here. Dost thou not know that he is seeking thee through
+all the land?"
+</block>
+    <block id="269c423b-3150-4ef4-aef2-2a67c1aa05fc" ref="id_2H_4_0020.p69" kind="paragraph" ordinal="69" anchor-id="619140d5-9a3c-42b4-90c1-bcf9c7011e3b" source-offset="69">
+"Yea," quoth Robin, "I do know right well that the King seeks me, and
+therefore I have come; for, surely, no ill can befall me when he hath
+pledged his royal word to Your Majesty for my safety. Moreover, I know
+Your Majesty's kindness and gentleness of heart, and so I lay my life
+freely in your gracious hands."
+</block>
+    <block id="b9c2036c-490e-40f8-8147-65a66aa0e9ec" ref="id_2H_4_0020.p70" kind="paragraph" ordinal="70" anchor-id="6b49e579-3320-4b19-be81-5323344c6074" source-offset="70">
+"I take thy meaning, Robin Hood," said the Queen, "and that thou dost
+convey reproach to me, as well thou mayst, for I know that I have not
+done by thee as I ought to have done. I know right well that thou must
+have been hard pressed by peril to leap so boldly into one danger to
+escape another. Once more I promise thee mine aid, and will do all I can
+to send thee back in safety to Sherwood Forest. Bide thou here till I
+return." So saying, she left Robin in the garden of roses, and was gone
+a long time.
+</block>
+    <block id="a9cf30ca-3f35-4e61-9bd1-9a3a40e922e9" ref="id_2H_4_0020.p71" kind="paragraph" ordinal="71" anchor-id="6ab8d655-1b03-4db6-8764-c77c6370ed9c" source-offset="71">
+When she came back Sir Robert Lee was with her, and the Queen's cheeks
+were hot and the Queen's eyes were bright, as though she had been
+talking with high words. Then Sir Robert came straight forward to where
+Robin Hood stood, and he spoke to the yeoman in a cold, stern voice.
+Quoth he, "Our gracious Sovereign the King hath mitigated his wrath
+toward thee, fellow, and hath once more promised that thou shalt depart
+in peace and safety. Not only hath he promised this, but in three days
+he will send one of his pages to go with thee and see that none arrest
+thy journey back again. Thou mayst thank thy patron saint that thou hast
+such a good friend in our noble Queen, for, but for her persuasion and
+arguments, thou hadst been a dead man, I can tell thee. Let this peril
+that thou hast passed through teach thee two lessons. First, be more
+honest. Second, be not so bold in thy comings and goings. A man that
+walketh in the darkness as thou dost may escape for a time, but in the
+end he will surely fall into the pit. Thou hast put thy head in the
+angry lion's mouth, and yet thou hast escaped by a miracle. Try it not
+again." So saying, he turned and left Robin and was gone.
+</block>
+    <block id="4a2980ad-5f0e-43cb-bc07-87f04d320084" ref="id_2H_4_0020.p72" kind="paragraph" ordinal="72" anchor-id="0fcf5352-5350-41f5-9a08-7fd151572fdd" source-offset="72">
+For three days Robin abided in London in the Queen's household, and at
+the end of that time the King's head Page, Edward Cunningham, came, and
+taking Robin with him, departed northward upon his way to Sherwood.
+Now and then they passed bands of the King's men coming back again to
+London, but none of those bands stopped them, and so, at last, they
+reached the sweet, leafy woodlands.
+</block>
+  </division>
+</work>
