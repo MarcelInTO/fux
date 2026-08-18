@@ -192,6 +192,16 @@ and asserting on rendered output. It is fixture-agnostic and runs in CI on Linux
 macOS. Every behavioural fix should come with a drill check that goes red when the
 fix is removed.
 
+The fixtures in `sandbox/testdata` are chosen to disagree with each other: `emp.xml`
+and `emp-invalid.xml` for valid and invalid XML, `import.json` and `import.csv` for
+the import paths (no whitespace of their own, retargeted on save), and
+`robin-hood.xml` — a trimmed excerpt of a real book export — for a document shaped
+like the ones fux is actually used on. That last one earns its place by being long:
+~190 blocks, deep enough that the tree scrolls many times over. A clipped list and a
+lost scroll position have both shipped past fixtures that fit on one screen. Drill
+time is steeply superlinear in document size (68 KB ≈ 7 s, 122 KB ≈ 12 s, 170 KB ≈
+28 s), so a fixture is a budget as well as a sample.
+
 ## Origins
 
 fux is a derivative work of **Microsoft XML Notepad**, Copyright (c) Microsoft

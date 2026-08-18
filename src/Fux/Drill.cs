@@ -614,12 +614,17 @@ namespace Fux
                         .StartsWith("no match"), "match case rejects the wrong casing");
 
                 // Values vs names: give one hit a value and search for that instead.
-                ui.Undo.Push(new EditNodeValue(h1, "a needle here"));
+                // "fux"-prefixed like every other magic string here, and for the same
+                // reason: a plain word collides with real prose. "needle" cost three
+                // failures the first time the drill was pointed at a real book, which
+                // contains the word once — the checks were asserting on a hit count that
+                // only held for documents that happened not to mention needles.
+                ui.Undo.Push(new EditNodeValue(h1, "a fuxneedle here"));
                 ui.Tree.SelectedObject = rootF;
-                Check(DoFind("needle", FindFlags.Normal, SearchFilter.Text) == "1/1",
+                Check(DoFind("fuxneedle", FindFlags.Normal, SearchFilter.Text) == "1/1",
                     "a value search finds the element by its text");
                 Check(ReferenceEquals(ui.Tree.SelectedObject, h1), "the value hit is the element holding it");
-                Check(DoFind("needle", FindFlags.Normal, SearchFilter.Names)
+                Check(DoFind("fuxneedle", FindFlags.Normal, SearchFilter.Names)
                         .StartsWith("no match"), "a name search ignores values");
                 ui.Tree.SelectedObject = rootF; // a miss leaves the selection where it was
                 Check(DoFind("fuxfind", FindFlags.Normal, SearchFilter.Names) == "1/2",
@@ -627,11 +632,11 @@ namespace Fux
 
                 // Whole word matches a run between delimiters, not a prefix of one.
                 ui.Tree.SelectedObject = rootF;
-                Check(DoFind("needle", FindFlags.WholeWord, SearchFilter.Text) == "1/1",
+                Check(DoFind("fuxneedle", FindFlags.WholeWord, SearchFilter.Text) == "1/1",
                     "whole word matches a whole word");
-                Check(DoFind("needl", FindFlags.WholeWord, SearchFilter.Text)
+                Check(DoFind("fuxneedl", FindFlags.WholeWord, SearchFilter.Text)
                         .StartsWith("no match"), "whole word rejects a partial word");
-                Check(DoFind("needl", FindFlags.Normal, SearchFilter.Text) == "1/1",
+                Check(DoFind("fuxneedl", FindFlags.Normal, SearchFilter.Text) == "1/1",
                     "the same partial matches without whole word");
 
                 // Regex and XPath modes, and what each says about a malformed expression.

@@ -158,12 +158,19 @@ jobs:
       # the import paths differ from the XML one in ways only a real document exercises: a
       # JSON/CSV import has no whitespace of its own (so the writer must supply layout) and
       # is retargeted to a sibling .xml (so a save cannot overwrite the source).
+      #
+      # robin-hood.xml is the one fixture shaped like a document fux is really used on:
+      # ~190 blocks, deep enough that the tree scrolls many times over. The small fixtures
+      # fit on one screen, which is why a clipped list and a lost scroll position both
+      # shipped past them. It costs ~12s of the ~1min job; the scaling is steeply
+      # superlinear (68KB 7s, 122KB 12s, 170KB 28s — see issue #2), so think before
+      # growing it.
       - name: TUI drill (headless interactive self-test)
         if: runner.os != 'Windows'
         shell: bash
         run: |
           fail=0
-          for f in sandbox/testdata/emp-invalid.xml sandbox/testdata/import.json sandbox/testdata/import.csv; do
+          for f in sandbox/testdata/emp-invalid.xml sandbox/testdata/robin-hood.xml sandbox/testdata/import.json sandbox/testdata/import.csv; do
             echo "::group::drill $f"
             set +e
             if [ "$RUNNER_OS" = "macOS" ]; then

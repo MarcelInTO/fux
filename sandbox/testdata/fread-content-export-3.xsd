@@ -1,0 +1,233 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  fread content export / import — schema version 3.
+
+  Written by hand and kept honest by a test that validates a real export against
+  it (contentxml package), because a hand-written schema drifts from the Go
+  structs within about two changes otherwise.
+
+  WHAT THIS CAN AND CANNOT CATCH
+
+  It catches the errors you make while typing: a misspelled attribute, a missing
+  quote, an element in the wrong place. It deliberately does NOT try to be the
+  dry run. Three rules live in the importer instead, because XSD 1.0 cannot
+  express co-occurrence constraints and XSD 1.1 assertions are unevenly
+  supported by editors:
+
+    - src is required on an <illustration> with no item-id
+    - print-placement carries information only on a plate or frontispiece
+    - every id / item-id must name a row in THIS work
+
+  The importer checks all three against the database, which is the only place
+  the last one can be answered at all. Run the dry run; this file is for the
+  minute-to-minute typing.
+
+  OPEN ENUMS ARE UNIONS, ON PURPOSE
+
+  `kind` and `role` are open enums in the platform: an unlisted value is stored
+  as typed and warned about, never rejected, so material can be marked up
+  correctly today and gain a design later. A plain xs:enumeration would forbid
+  exactly that. Each is therefore a union of the known values with xs:string —
+  editors offer the known set as completions, and nothing valid is rejected.
+-->
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" elementFormDefault="unqualified">
+
+  <xs:simpleType name="uuid">
+    <xs:restriction base="xs:string">
+      <xs:pattern value="[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="knownBlockKind">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="paragraph"/>
+      <xs:enumeration value="heading"/>
+      <xs:enumeration value="blockquote"/>
+      <xs:enumeration value="epigraph"/>
+      <xs:enumeration value="argument"/>
+      <xs:enumeration value="footnote"/>
+      <xs:enumeration value="inscription"/>
+      <xs:enumeration value="playbill"/>
+      <xs:enumeration value="headline"/>
+      <xs:enumeration value="lineated"/>
+      <xs:enumeration value="preformatted"/>
+      <xs:enumeration value="divider"/>
+      <xs:enumeration value="stanza-break"/>
+      <xs:enumeration value="verse-line"/>
+      <xs:enumeration value="verse-title"/>
+      <xs:enumeration value="verse-speaker"/>
+      <xs:enumeration value="song"/>
+      <xs:enumeration value="prose"/>
+      <xs:enumeration value="speaker"/>
+      <xs:enumeration value="stage-direction"/>
+      <xs:enumeration value="sound-cue"/>
+      <xs:enumeration value="letter"/>
+      <xs:enumeration value="salutation"/>
+      <xs:enumeration value="dateline"/>
+      <xs:enumeration value="signature"/>
+      <xs:enumeration value="cast-group"/>
+      <xs:enumeration value="cast-item"/>
+      <xs:enumeration value="cast-desc"/>
+    </xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="blockKind">
+    <xs:union memberTypes="knownBlockKind xs:string"/>
+  </xs:simpleType>
+
+  <xs:simpleType name="knownDivisionKind">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="chapter"/>
+      <xs:enumeration value="title-page"/>
+      <xs:enumeration value="front-matter"/>
+      <xs:enumeration value="preface"/>
+      <xs:enumeration value="foreword"/>
+      <xs:enumeration value="introduction"/>
+      <xs:enumeration value="dedication"/>
+      <xs:enumeration value="contents"/>
+      <xs:enumeration value="illustrations"/>
+      <xs:enumeration value="argument"/>
+      <xs:enumeration value="synopsis"/>
+      <xs:enumeration value="proem"/>
+      <xs:enumeration value="prologue"/>
+      <xs:enumeration value="prelude"/>
+      <xs:enumeration value="epilogue"/>
+      <xs:enumeration value="coda"/>
+      <xs:enumeration value="act"/>
+      <xs:enumeration value="scene"/>
+      <xs:enumeration value="induction"/>
+      <xs:enumeration value="chorus"/>
+      <xs:enumeration value="cast-list"/>
+      <xs:enumeration value="textual-introduction"/>
+      <xs:enumeration value="directors-note"/>
+      <xs:enumeration value="poem"/>
+    </xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="divisionKind">
+    <xs:union memberTypes="knownDivisionKind xs:string"/>
+  </xs:simpleType>
+
+  <xs:simpleType name="knownImageRole">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="frontispiece"/>
+      <xs:enumeration value="plate"/>
+      <xs:enumeration value="headpiece"/>
+      <xs:enumeration value="tailpiece"/>
+      <xs:enumeration value="facsimile"/>
+      <xs:enumeration value="cover"/>
+    </xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="imageRole">
+    <xs:union memberTypes="knownImageRole xs:string"/>
+  </xs:simpleType>
+
+  <xs:simpleType name="knownPrintPlacement">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="facing-chapter-open"/>
+      <xs:enumeration value="own-page"/>
+    </xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="printPlacement">
+    <xs:union memberTypes="knownPrintPlacement xs:string"/>
+  </xs:simpleType>
+
+  <!-- An image attaches to the element it is NESTED IN. Inside a <block> it
+       attaches to that block, so its position among the characters means
+       nothing; directly inside a <division>, to the chapter itself.
+       anchor-id is exported for reference and ignored on import. -->
+  <xs:complexType name="illustration">
+    <xs:attribute name="item-id"   type="uuid"/>
+    <xs:attribute name="src"       type="xs:string"/>
+    <xs:attribute name="blob-id"   type="uuid"/>
+    <xs:attribute name="anchor-id" type="uuid"/>
+    <xs:attribute name="source-ref"      type="xs:string"/>
+    <xs:attribute name="role"            type="imageRole"/>
+    <xs:attribute name="role-pending"    type="imageRole"/>
+    <xs:attribute name="print-placement" type="printPlacement"/>
+    <xs:attribute name="alt"     type="xs:string"/>
+    <xs:attribute name="caption" type="xs:string"/>
+  </xs:complexType>
+
+  <xs:complexType name="block" mixed="true">
+    <xs:sequence>
+      <xs:element name="illustration" type="illustration" minOccurs="0" maxOccurs="unbounded"/>
+    </xs:sequence>
+    <xs:attribute name="id"        type="uuid"/>
+    <xs:attribute name="ref"       type="xs:string"/>
+    <xs:attribute name="kind"      type="blockKind"/>
+    <xs:attribute name="ordinal"   type="xs:decimal"/>
+    <xs:attribute name="anchor-id" type="uuid"/>
+    <xs:attribute name="source-offset" type="xs:int"/>
+    <xs:attribute name="text-form">
+      <xs:simpleType>
+        <xs:restriction base="xs:string">
+          <xs:enumeration value="plain"/>
+        </xs:restriction>
+      </xs:simpleType>
+    </xs:attribute>
+  </xs:complexType>
+
+  <!-- The sequence is load-bearing, and catches a bug the importer cannot.
+       Go's encoding/xml collects blocks and child divisions into separate
+       fields, preserving order WITHIN each but losing any interleaving. Put a
+       block after a nested <division> and the importer silently pulls it back
+       before — a silent reordering, which is the one failure this round trip
+       exists to prevent. Requiring illustrations, then blocks, then divisions
+       makes an editor flag it as you type.
+
+       It also forces division-level images to the top, which is not merely a
+       schema convenience: a division-anchored image is re-homed by the composer
+       onto the division's FIRST block, so one written after the blocks would
+       still render at the top. A tailpiece therefore belongs on the division's
+       last <block>, not here — the schema and the data model agree. -->
+  <xs:complexType name="division">
+    <xs:sequence>
+      <xs:element name="illustration" type="illustration" minOccurs="0" maxOccurs="unbounded"/>
+      <xs:element name="block"        type="block"        minOccurs="0" maxOccurs="unbounded"/>
+      <xs:element name="division"     type="division"     minOccurs="0" maxOccurs="unbounded"/>
+    </xs:sequence>
+    <xs:attribute name="id"       type="uuid"/>
+    <xs:attribute name="ref"      type="xs:string"/>
+    <xs:attribute name="kind"     type="divisionKind"/>
+    <xs:attribute name="ordinal"  type="xs:decimal"/>
+    <xs:attribute name="depth"    type="xs:int"/>
+    <xs:attribute name="number"   type="xs:string"/>
+    <xs:attribute name="title"    type="xs:string"/>
+    <xs:attribute name="anchor-id"     type="uuid"/>
+    <xs:attribute name="source-anchor" type="xs:string"/>
+    <xs:attribute name="rendered">
+      <xs:simpleType>
+        <xs:restriction base="xs:string">
+          <xs:enumeration value="false"/>
+        </xs:restriction>
+      </xs:simpleType>
+    </xs:attribute>
+  </xs:complexType>
+
+  <xs:element name="work">
+    <xs:complexType>
+      <xs:sequence>
+        <xs:element name="division" type="division" minOccurs="0" maxOccurs="unbounded"/>
+        <!-- The parking bay for an image whose anchor matched nothing. Should
+             be empty in practice; the importer leaves these untouched, because
+             an element with no nesting has no placement to apply. -->
+        <xs:element name="illustration" type="illustration" minOccurs="0" maxOccurs="unbounded"/>
+      </xs:sequence>
+      <xs:attribute name="export-schema" type="xs:string" use="required"/>
+      <xs:attribute name="id"            type="uuid"      use="required"/>
+      <!-- export-scope names the subtree this file covers ("division:ch3");
+           absent means the whole work. The import confines both matching and
+           DELETION to it, which is what stops a one-chapter file retiring
+           every other chapter — the file simply does not mention them, and
+           "not mentioned" is how this format spells delete.
+           export-state fingerprints the work as this file found it, so an
+           import can refuse a file exported before the work last changed.
+           Neither is yours to edit. -->
+      <xs:attribute name="export-scope" type="xs:string"/>
+      <xs:attribute name="export-state" type="xs:string"/>
+      <xs:attribute name="title"        type="xs:string"/>
+      <xs:attribute name="attribution"  type="xs:string"/>
+      <xs:attribute name="rights-state" type="xs:string"/>
+    </xs:complexType>
+  </xs:element>
+
+</xs:schema>
