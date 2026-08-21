@@ -483,17 +483,70 @@ namespace Fux
         }
     }
 
+    // The two display bands the tree presents under an element — attributes, then children —
+    // and the neighbours within one. Attributes step through the owner's attribute collection,
+    // everything else through the shown siblings: Program.IsShown skips the whitespace that is
+    // only layout, and the text the tree folds into an element's value, so a step never lands
+    // on a row that is not drawn — though it does step onto the text of mixed content, which
+    // has rows of its own and is a legitimate neighbour.
+    //
+    // Shared because two commands need the same answer for different reasons: a nudge asks who
+    // it is swapping with, and a delete asks who the cursor should fall to (#18).
+    internal static class NodeBand
+    {
+        internal static string Name(XmlNode n) => n is XmlAttribute ? "attribute" : "child";
+
+        internal static XmlNode Prev(XmlNode n)
+        {
+            if (n is XmlAttribute a)
+            {
+                var attrs = a.OwnerElement?.Attributes;
+                int i = NodeBand.IndexOfAttr(attrs, a);
+                return i > 0 ? attrs[i - 1] : null;
+            }
+            for (var p = n.PreviousSibling; p != null; p = p.PreviousSibling)
+                if (Program.IsShown(p)) return p;
+            return null;
+        }
+
+        internal static XmlNode Next(XmlNode n)
+        {
+            if (n is XmlAttribute a) return NodeBand.NextAttribute(a.OwnerElement, a);
+            for (var s = n.NextSibling; s != null; s = s.NextSibling)
+                if (Program.IsShown(s)) return s;
+            return null;
+        }
+
+        internal static XmlAttribute NextAttribute(XmlElement owner, XmlAttribute a)
+        {
+            var attrs = owner?.Attributes;
+            int i = NodeBand.IndexOfAttr(attrs, a);
+            return i >= 0 && i + 1 < attrs.Count ? attrs[i + 1] : null;
+        }
+
+        internal static int IndexOfAttr(XmlAttributeCollection attrs, XmlAttribute a)
+        {
+            if (attrs == null) return -1;
+            int i = 0;
+            while (i < attrs.Count && !ReferenceEquals(attrs[i], a)) i++;
+            return i < attrs.Count ? i : -1;
+        }
+    }
+
     // Pure-DOM delete with exact-position undo: the successor sibling (or successor
     // attribute) is the anchor for reinsertion. The document root is off limits — an
     // empty document would ripple through every pane for little gain.
     //
-    // Reports its container, because a delete is the one command whose Node is not the node
-    // that changed: the deleted node is gone, so Node is the container, and the view refresh
-    // anchored on it (Program.RefreshTreeFor rebuilds the *parent* of what it is handed)
-    // lands one level too high. Branch.Refresh never touches descendants, so the container's
-    // own child list would keep the row of a node that is no longer in the document — still
-    // drawn, still editable, and invisible to find, which walks the DOM. Naming the container
-    // here puts the rebuild where the child actually left from.
+    // A delete is the one command whose Node is not the node that changed — that node is gone.
+    // It reports the nearest surviving neighbour in the same band instead, which is both where
+    // the cursor belongs and, being adjacent to the row just removed, already on screen, so the
+    // reveal that follows does not move the view. Reporting the *container* (what this did
+    // before) threw the tree to the parent, a screenful or more away in a real document (#18).
+    //
+    // The container still gets rebuilt: it is what Containers yields, and Branch.Refresh never
+    // touches descendants, so without that the container's child list would keep the row of a
+    // node no longer in the document — still drawn, still editable, and invisible to find,
+    // which walks the DOM.
     internal sealed class DeleteNode : Command, INodeCommand, IContainerCommand
     {
         private readonly XmlNode _node;
@@ -523,6 +576,13 @@ namespace Fux
 
         public override void Do()
         {
+            // Where the cursor should fall once this row is gone: the next neighbour in the
+            // node's own band, the previous one when this was the last, and only then the
+            // container. Computed here, before the removal, while the node still has siblings
+            // to ask about — and it is why a delete no longer throws the view to the parent
+            // (#18). The neighbour is adjacent to the row that just went, so it is already on
+            // screen and the reveal that follows has nothing to scroll.
+            var landing = NodeBand.Next(_node) ?? NodeBand.Prev(_node);
             if (_node is XmlAttribute a)
             {
                 _container = a.OwnerElement;
@@ -544,7 +604,7 @@ namespace Fux
                 _container.RemoveChild(_node);
                 if (_ws != null) _container.RemoveChild(_ws);
             }
-            _current = _container;
+            _current = landing ?? _container;
         }
 
         public override void Redo() => Do();
@@ -628,14 +688,14 @@ namespace Fux
             _from = (attr != null ? attr.OwnerElement : node.ParentNode as XmlElement)
                 ?? throw new NudgeBlocked("cannot nudge a node outside the document root");
             _node = node;
-            _fromRef = attr != null ? NextAttribute(_from, attr) : node.NextSibling;
+            _fromRef = attr != null ? NodeBand.NextAttribute(_from, attr) : node.NextSibling;
 
             switch (dir)
             {
                 case NudgeDir.Up:
                 {
-                    var prev = PrevInBand(node)
-                        ?? throw new NudgeBlocked($"already the first {BandName(node)}");
+                    var prev = NodeBand.Prev(node)
+                        ?? throw new NudgeBlocked($"already the first {NodeBand.Name(node)}");
                     _to = _from;
                     // Landing in front of the predecessor swaps the two — but in front of the
                     // predecessor's *indentation*, so the two lines swap rather than the two
@@ -646,12 +706,12 @@ namespace Fux
 
                 case NudgeDir.Down:
                 {
-                    var next = NextInBand(node)
-                        ?? throw new NudgeBlocked($"already the last {BandName(node)}");
+                    var next = NodeBand.Next(node)
+                        ?? throw new NudgeBlocked($"already the last {NodeBand.Name(node)}");
                     _to = _from;
                     // To land after `next`, anchor on whatever follows it (null appends).
                     _toRef = attr != null
-                        ? NextAttribute(_from, (XmlAttribute)next)
+                        ? NodeBand.NextAttribute(_from, (XmlAttribute)next)
                         : next.NextSibling;
                     break;
                 }
@@ -673,7 +733,7 @@ namespace Fux
                     {
                         // Upstream's rule: the first of several children lands *before* its old
                         // parent, so left-then-right is a round trip; anything else lands after.
-                        bool firstOfSeveral = PrevInBand(node) == null && NextInBand(node) != null;
+                        bool firstOfSeveral = NodeBand.Prev(node) == null && NodeBand.Next(node) != null;
                         _toRef = firstOfSeveral
                             ? XmlLayout.LeadingWhitespace(_from) ?? (XmlNode)_from
                             : _from.NextSibling;
@@ -685,9 +745,9 @@ namespace Fux
                 {
                     // The preceding sibling becomes the new parent. Attributes have only other
                     // attributes in front of them, so they can never demote.
-                    _to = PrevInBand(node) as XmlElement
+                    _to = NodeBand.Prev(node) as XmlElement
                         ?? throw new NudgeBlocked(
-                            $"no preceding sibling element to move this {BandName(node)} into");
+                            $"no preceding sibling element to move this {NodeBand.Name(node)} into");
                     // Append as its last child (upstream's InsertPosition.Child), but ahead of
                     // the indentation that sits before the target's end tag.
                     _toRef = XmlLayout.TrailingWhitespace(_to);
@@ -751,50 +811,7 @@ namespace Fux
             if (!opening && _toWasEmpty && _to.ChildNodes.Count == 0) _to.IsEmpty = true;
         }
 
-        // The two display bands the tree presents under an element, in order.
-        private static string BandName(XmlNode n) => n is XmlAttribute ? "attribute" : "child";
-
-        // Neighbours within the node's own band: attributes step through the owner's attribute
-        // collection, everything else through the shown siblings (Program.IsShown skips the
-        // whitespace that is layout, and the text the tree folds into an element value, so a
-        // nudge never lands on a row that is not there — but it does step onto the text of mixed
-        // content, which has rows of its own and so is a legitimate neighbour to swap with).
-        private static XmlNode PrevInBand(XmlNode n)
-        {
-            if (n is XmlAttribute a)
-            {
-                var attrs = a.OwnerElement?.Attributes;
-                int i = IndexOfAttr(attrs, a);
-                return i > 0 ? attrs[i - 1] : null;
-            }
-            for (var p = n.PreviousSibling; p != null; p = p.PreviousSibling)
-                if (Program.IsShown(p)) return p;
-            return null;
-        }
-
-        private static XmlNode NextInBand(XmlNode n)
-        {
-            if (n is XmlAttribute a) return NextAttribute(a.OwnerElement, a);
-            for (var s = n.NextSibling; s != null; s = s.NextSibling)
-                if (Program.IsShown(s)) return s;
-            return null;
-        }
-
-        private static XmlAttribute NextAttribute(XmlElement owner, XmlAttribute a)
-        {
-            var attrs = owner?.Attributes;
-            int i = IndexOfAttr(attrs, a);
-            return i >= 0 && i + 1 < attrs.Count ? attrs[i + 1] : null;
-        }
-
         // By reference: two attributes can share a name only transiently, and Equals on
         // XmlAttribute is identity anyway — this keeps the intent explicit.
-        private static int IndexOfAttr(XmlAttributeCollection attrs, XmlAttribute a)
-        {
-            if (attrs == null) return -1;
-            for (int i = 0; i < attrs.Count; i++)
-                if (ReferenceEquals(attrs[i], a)) return i;
-            return -1;
-        }
     }
 }
