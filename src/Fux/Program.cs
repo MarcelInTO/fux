@@ -390,9 +390,15 @@ namespace Fux
             // silent dependency on the widget's default.
             valueView.HotKeySpecifier = NoHotKey;
 
-            // Two-pane sync: the tree drives, the value pane reflects the selection.
+            // Two-pane sync: the tree drives, the value pane reflects the selection — except
+            // while an edit is live, when the pane's text belongs to the user rather than to
+            // the DOM. Unguarded, a selection change mid-edit replaced what had been typed with
+            // the newly selected node's value, and the commit that followed wrote *that* into
+            // the node the edit had started on (#20). Focus containment below is what keeps the
+            // selection still during an edit; this is the net for any route that gets past it.
             tree.SelectionChanged += (s, e) =>
             {
+                if (ui != null && ui.Editing) return;
                 var n = e.NewValue;
                 valueView.Text = n == null ? "" : GetValue(n) ?? "";
             };
@@ -402,17 +408,6 @@ namespace Fux
             tree.Accepting += (s, e) =>
             {
                 if (StartValueEdit(ui)) e.Handled = true;
-            };
-
-            // Esc in the value pane abandons a live edit. The KeyDown event fires before the
-            // TextView's own key processing, so this wins while editing and is inert otherwise.
-            valueView.KeyDown += (s, e) =>
-            {
-                if (ui != null && ui.Editing && e.KeyCode == Key.Esc.KeyCode)
-                {
-                    CancelValueEdit(ui);
-                    e.Handled = true;
-                }
             };
 
             // --- Bottom: validation/error pane. Its border title carries the summary.
@@ -520,9 +515,17 @@ namespace Fux
                 // fux opens. So the key is swallowed here instead, where the two things
                 // that legitimately want it are still visible to us and can be left alone:
                 // a modal (the early return above) and an open menu.
-                else if (!ui.Editing && e.KeyCode == Key.Esc.KeyCode && !MenuIsOpen(ui))
+                //
+                // Decided in every state, not merely outside an edit. The old `!ui.Editing`
+                // guard let the value pane take its own Esc — right when the pane held the
+                // keyboard, which is true of every keyboard route into edit mode and false the
+                // moment a click moved focus. In that gap Esc reached Command.Quit and took a
+                // session's unsaved work with it, never passing RequestQuit, so ConfirmDiscard
+                // never ran (#24). Cancelling here works whoever holds focus.
+                else if (e.KeyCode == Key.Esc.KeyCode && !MenuIsOpen(ui))
                 {
-                    SetValueStatus(ui, "Esc does not quit — ^Q does");
+                    if (ui.Editing) CancelValueEdit(ui);
+                    else SetValueStatus(ui, "Esc does not quit — ^Q does");
                     e.Handled = true;
                 }
             };
@@ -610,6 +613,7 @@ namespace Fux
             tv.ReadOnly = false;
             tv.Title = "Value — editing (F2: commit, Esc: cancel)";
             tv.SetFocus();
+            SetEditContainment(ui, true);
             return true;
         }
 
@@ -625,12 +629,43 @@ namespace Fux
 
         private static void CancelValueEdit(Ui ui) => EndValueEdit(ui);
 
+        // Note on what is deliberately NOT here: an arrow-confining branch in the app-wide key
+        // handler, dispatching Command.Up/Down to the pane and swallowing the key. It was
+        // written, and mutation-testing retired it — with it disabled the drill still passed
+        // 331/331, because containment below already stops a declined arrow from reaching the
+        // tree. It would have re-implemented caret movement through InvokeCommand, which is
+        // not identical to the TextView's own key handling (vertical movement there remembers
+        // a desired column), for no behaviour the drill could tell apart.
+        //
+        // An edit owns the keyboard until it ends. Terminal.Gui hands a key the focused view
+        // declined to focus navigation, so an Up on a value's first line — or a mouse click on
+        // the tree — moved focus out of a live edit while ui.Editing stayed true. That state,
+        // edit live but pane unfocused, is what #24 quit from and #20 corrupted from: it is the
+        // same rule CycleFocus already applies to F6 ("don't yank focus out of a live edit"),
+        // applied to every other way in.
+        //
+        // Done by taking the other panes out of the focus chain, not by vetoing the value
+        // pane's own HasFocusChanging. That veto reads well and does not hold — an explicit
+        // SetFocus goes through it regardless (measured against 2.4.17 in the drill) — and a
+        // guard that looks like containment without being it is worse than none. CanFocus is
+        // consulted by every route, keyboard navigation and mouse alike.
+        //
+        // Order matters at both ends, and both callers respect it: the value pane takes focus
+        // before the tree gives up CanFocus, and gets it back before EndValueEdit hands focus
+        // on, so neither transition runs against a pane that cannot be focused.
+        private static void SetEditContainment(Ui ui, bool editing)
+        {
+            ui.Tree.CanFocus = !editing;
+            ui.ErrorList.CanFocus = !editing;
+        }
+
         // Leave edit mode and restore the read-only value pane from the DOM.
         private static void EndValueEdit(Ui ui)
         {
             var node = ui.EditNode;
             ui.Editing = false;
             ui.EditNode = null;
+            SetEditContainment(ui, false);
             var tv = (TextView)ui.ValueView;
             tv.ReadOnly = true;
             tv.Title = "Value";
