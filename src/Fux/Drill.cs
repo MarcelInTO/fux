@@ -468,11 +468,21 @@ namespace Fux
                 {
                     var parent9 = firstChild.ParentNode;
                     var successor = NextShown(firstChild);
+                    // Where the delete should land, derived from this fixture rather than fixed:
+                    // the CI documents differ on whether the root's first element has siblings,
+                    // and an assertion of "the container" only held for the one that does not.
+                    // The rule itself is what is under test; §13d exercises all three arms of it
+                    // on a document built for the purpose.
+                    var landing9 = successor ?? PrevShown(firstChild) ?? parent9;
+                    var landing9What = successor != null ? "the next sibling"
+                        : ReferenceEquals(landing9, parent9) ? "the container, nothing left in the band"
+                        : "the previous sibling";
                     ui.Tree.SelectedObject = firstChild;
                     ui.Tree.SetFocus();
                     app.Keyboard.RaiseKeyDownEvent(Key.DeleteChar);
                     Check(firstChild.ParentNode == null, "Del removes the selected element");
-                    Check(ReferenceEquals(ui.Tree.SelectedObject, parent9), "selection falls back to the parent");
+                    Check(ReferenceEquals(ui.Tree.SelectedObject, landing9),
+                        $"Del lands on the surviving neighbour — here, {landing9What}");
                     app.Keyboard.RaiseKeyDownEvent(Key.Z.WithCtrl);
                     Check(ReferenceEquals(firstChild.ParentNode, parent9) && ReferenceEquals(NextShown(firstChild), successor),
                         "undo restores the element in its exact position");
@@ -1246,6 +1256,123 @@ namespace Fux
                 Console.Error.WriteLine("  (no node with a value; clipboard drill not exercised)");
             }
 
+            // --- 13d. Reveal: WHICH node a delete lands on (#18), and WHERE a reveal comes to
+            // rest (#10). Two issues, one section, because they meet in the same call and the
+            // second is what makes the first observable: a delete that lands on a neighbour of
+            // the row it removed only leaves the view alone because an already-visible node is
+            // not scrolled to.
+            //
+            // On a document built here rather than on the fixture. Every check below is about
+            // scrolling, so it needs more rows than the pane has — and the CI fixtures are not
+            // all tall enough. Building it means these run on all four of them instead of
+            // silently skipping on three, which is how a scroll bug ships.
+            {
+                var tallPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "fux-drill-tall.xml");
+                var sb = new System.Text.StringBuilder("<fuxtall>\n");
+                for (int i = 0; i < 60; i++) sb.Append($"  <fuxrow>r{i:00}</fuxrow>\n");
+                sb.Append("  <fuxsolo><fuxonly>x</fuxonly></fuxsolo>\n");
+                sb.Append("  <fuxattrs p=\"1\" q=\"2\" r=\"3\">z</fuxattrs>\n</fuxtall>\n");
+                System.IO.File.WriteAllText(tallPath, sb.ToString());
+
+                if (Check(Program.TryOpen(ui, tallPath) == null, "reveal drill: the tall document opens"))
+                {
+                    app.LayoutAndDraw(true);
+                    var tree = ui.Tree;
+                    var tallRoot = Program.Model.Document.DocumentElement;
+                    var kids = new List<XmlNode>(Program.GetChildren(tallRoot));
+                    int h = tree.Viewport.Height;
+                    int total = tree.GetSize().Height;
+                    // Assert the shape of the fixture before asserting anything with it: a pane
+                    // as tall as the document would make every "did it scroll?" check vacuous.
+                    Check(kids.Count == 62 && h > 4 && total > h + 4,
+                        $"reveal drill: {kids.Count} rows under the root, pane {h} of {total} — tall enough to scroll");
+
+                    // --- #10: where a reveal comes to rest.
+                    tree.ScrollOffsetVertical = 0;
+                    Program.RevealNode(ui, kids[40]);
+                    int inPane = tree.GetScrollOffsetOf(kids[40]) - tree.ScrollOffsetVertical;
+                    Check(Math.Abs(inPane - h / 2) <= 1,
+                        $"a reveal that must scroll comes to rest near the middle (row {inPane} of {h})");
+                    Check(inPane >= 0 && inPane < h, "...and inside the pane at all");
+
+                    // Clamped at the top: no blank space scrolled in above the root.
+                    Program.RevealNode(ui, kids[1]);
+                    Check(tree.ScrollOffsetVertical == 0,
+                        $"a reveal near the top leaves the view at the top (offset {tree.ScrollOffsetVertical})");
+
+                    // Clamped at the bottom: the last screenful, no blank space below the last row.
+                    Program.RevealNode(ui, kids[kids.Count - 1]);
+                    Check(tree.ScrollOffsetVertical == total - h,
+                        $"a reveal near the bottom leaves the last screenful (offset {tree.ScrollOffsetVertical}, max {total - h})");
+
+                    // Already on screen: not moved, even sitting on an edge. This is the decided
+                    // behaviour, and the reason F3 through neighbouring matches does not jump.
+                    int parked = tree.ScrollOffsetVertical;
+                    var onEdge = tree.GetObjectOnRow(0);
+                    if (Check(onEdge != null, "reveal drill: something is on the pane's first row"))
+                    {
+                        Program.RevealNode(ui, onEdge);
+                        Check(tree.ScrollOffsetVertical == parked,
+                            $"a reveal of a node already on screen does not move the view (offset {tree.ScrollOffsetVertical}, was {parked})");
+                        Check(ReferenceEquals(tree.SelectedObject, onEdge), "...but still selects it");
+                    }
+
+                    // --- #18: which node a delete lands on, and that the view stays put.
+                    Program.RevealNode(ui, kids[38]);
+                    int before = tree.ScrollOffsetVertical;
+                    var successor = kids[39];
+                    Check(Program.TryDelete(ui, kids[38]) == null, "reveal drill: delete accepted");
+                    Check(ReferenceEquals(tree.SelectedObject, successor),
+                        "a delete selects the following sibling, not the container");
+                    Check(tree.ScrollOffsetVertical == before,
+                        $"...and leaves the viewport exactly where it was (offset {tree.ScrollOffsetVertical}, was {before})");
+                    app.Keyboard.RaiseKeyDownEvent(Key.Z.WithCtrl);
+                    Check(ReferenceEquals(tree.SelectedObject, kids[38]), "^Z restores the node and reselects it");
+
+                    // Last in its band: nothing follows it, so the cursor falls back one row.
+                    // The genuinely last child, not the last <fuxrow> — the rows are followed by
+                    // <fuxsolo> and <fuxattrs>, and landing on those is the *forward* rule doing
+                    // its job. Getting this wrong first is why the index is spelled out.
+                    var last = kids[kids.Count - 1];
+                    var beforeLast = kids[kids.Count - 2];
+                    Check(Program.TryDelete(ui, last) == null, "reveal drill: delete of the last row accepted");
+                    Check(ReferenceEquals(tree.SelectedObject, beforeLast),
+                        "deleting the last of a band selects the one before it");
+                    app.Keyboard.RaiseKeyDownEvent(Key.Z.WithCtrl);
+
+                    // An only child still selects the container — it is on screen by construction.
+                    var solo = tallRoot.SelectSingleNode("fuxsolo");
+                    var only = solo?.FirstChild;
+                    if (Check(only != null, "reveal drill: found the only child"))
+                    {
+                        Check(Program.TryDelete(ui, only) == null, "reveal drill: only-child delete accepted");
+                        Check(ReferenceEquals(tree.SelectedObject, solo),
+                            "deleting an only child falls back to the container");
+                        app.Keyboard.RaiseKeyDownEvent(Key.Z.WithCtrl);
+                    }
+
+                    // Attributes follow the same rule inside their own band.
+                    var attrOwner = (XmlElement)tallRoot.SelectSingleNode("fuxattrs");
+                    var pAttr = attrOwner?.GetAttributeNode("p");
+                    var qAttr = attrOwner?.GetAttributeNode("q");
+                    if (Check(pAttr != null && qAttr != null, "reveal drill: found the attributes"))
+                    {
+                        Check(Program.TryDelete(ui, pAttr) == null, "reveal drill: attribute delete accepted");
+                        Check(ReferenceEquals(tree.SelectedObject, qAttr),
+                            "deleting an attribute selects the next attribute, not the owner");
+                        app.Keyboard.RaiseKeyDownEvent(Key.Z.WithCtrl);
+                        var rAttr = attrOwner.GetAttributeNode("r");
+                        Check(Program.TryDelete(ui, rAttr) == null, "reveal drill: last-attribute delete accepted");
+                        Check(ReferenceEquals(tree.SelectedObject, attrOwner.GetAttributeNode("q")),
+                            "deleting the last attribute selects the one before it");
+                        app.Keyboard.RaiseKeyDownEvent(Key.Z.WithCtrl);
+                    }
+                }
+                // Back to the document every later section expects, clean.
+                Check(Program.TryOpen(ui, file) == null, "reveal drill: the real document reopens");
+                Check(!Program.Model.Dirty, "reveal drill: and reopens clean");
+            }
+
             // --- 14. The About box carries the attribution the MIT notice requires.
             // Not a cosmetic check: fux bundles Microsoft's engine, and this is the only notice a
             // user who never opens the repo will read. Asserting on the specific strings, so
@@ -1778,6 +1905,13 @@ namespace Fux
         {
             for (var s = n?.NextSibling; s != null; s = s.NextSibling)
                 if (Program.IsShown(s)) return s;
+            return null;
+        }
+
+        private static XmlNode PrevShown(XmlNode n)
+        {
+            for (var p = n?.PreviousSibling; p != null; p = p.PreviousSibling)
+                if (Program.IsShown(p)) return p;
             return null;
         }
 

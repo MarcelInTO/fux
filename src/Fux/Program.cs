@@ -1398,8 +1398,40 @@ namespace Fux
         internal static void RevealNode(Ui ui, XmlNode node)
         {
             ExpandTo(ui, node);
-            ui.Tree.EnsureVisible(node);
+            ScrollIntoView(ui, node);
             ui.Tree.SelectedObject = node;
+        }
+
+        // EnsureVisible is a *minimum* scroll by design: it moves the view exactly far enough to
+        // bring the row inside the viewport, which parks the node on whichever edge it came in
+        // from. A search hit landing there has no structure to read it against and is one cursor
+        // press from scrolling back out of sight (#10). Aim for the middle instead, and let the
+        // view stop at the first and last screenful rather than scrolling past them — no blank
+        // space above the root, none below the last node.
+        //
+        // A node already on screen is left exactly where it is, edge or not. That is decided,
+        // not an oversight: re-centring on every reveal would make F3 through a run of
+        // neighbouring matches jump the pane about, which is worse than the problem. It is also
+        // what keeps a delete from moving the view at all, now that the delete lands on a
+        // neighbour of the row it removed (#18).
+        private static void ScrollIntoView(Ui ui, XmlNode node)
+        {
+            var tree = ui.Tree;
+            int row = tree.GetScrollOffsetOf(node);
+            if (row < 0) { tree.EnsureVisible(node); return; } // not exposed: let v2 decide
+            int height = tree.Viewport.Height;
+            if (height <= 0) { tree.EnsureVisible(node); return; } // not laid out yet
+            int top = tree.ScrollOffsetVertical;
+            if (row >= top && row < top + height) return;         // already on screen: leave it
+            // Assigned raw: ScrollOffsetVertical clamps both ends itself. The low end is
+            // documented ("a value of less than 0 will result in an offset of 0") and the high
+            // end was measured — assigning an offset 500 past the end parks the view at exactly
+            // total - height. An explicit Math.Clamp was written here first, and mutation
+            // testing retired it: removing it changed no check, because the framework was
+            // already doing the work. The behaviour stays pinned either way, since §13d asserts
+            // the last screenful by offset — if a Terminal.Gui update ever stops clamping, that
+            // check is what says so.
+            tree.ScrollOffsetVertical = row - height / 2;
         }
 
         // Open every container above the node. Without this a node that lands inside a collapsed
