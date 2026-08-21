@@ -196,6 +196,59 @@ namespace Fux
                 Check(!ui.Editing && ui.Tree.HasFocus, "Esc cancels the edit and refocuses the tree");
                 Check(EditNodeValue.GetNodeValue(editable) == before + "-edited", "cancelled edit leaves the DOM alone");
 
+                // #20: an edit is confined to the value pane, at the field's edges too. Up on
+                // the first line was declined by the TextView, became focus navigation, and
+                // walked the *tree* selection — whose sync handler then replaced the edit
+                // buffer with the newly selected node's value, so the next commit wrote one
+                // node's value into another. Three things have to hold at once, and the bug
+                // broke all three: the caret still moves, it stops at the edge instead of
+                // escaping, and what was typed is still there.
+                //
+                // A multi-line value on purpose. A single-line one is at both edges at once,
+                // so it cannot tell "confined" from "swallowed" — the caret would never have
+                // anywhere to go and a fix that ate every arrow would pass.
+                var beforeArrows = ui.Tree.SelectedObject;
+                app.Keyboard.RaiseKeyDownEvent(Key.F2);
+                tv.Text = "fuxrow0\nfuxrow1\nfuxrow2";
+                var typed = tv.Text;
+                for (int i = 0; i < 5; i++) app.Keyboard.RaiseKeyDownEvent(Key.CursorUp);
+                Check(tv.CurrentRow == 0, $"Up parks the caret on the first line (row {tv.CurrentRow})");
+                app.Keyboard.RaiseKeyDownEvent(Key.CursorDown);
+                app.Keyboard.RaiseKeyDownEvent(Key.CursorDown);
+                Check(tv.CurrentRow == 2, $"Down still moves the caret inside the field (row {tv.CurrentRow})");
+                // Past the last line: more presses than the value has lines, which is the
+                // reported gesture (holding an arrow to reach the end of a paragraph).
+                for (int i = 0; i < 5; i++) app.Keyboard.RaiseKeyDownEvent(Key.CursorDown);
+                Check(tv.CurrentRow == 2, $"...and stops at the last line rather than escaping (row {tv.CurrentRow})");
+                Check(ReferenceEquals(ui.Tree.SelectedObject, beforeArrows),
+                    "the tree selection cannot move while an edit is live");
+                Check(tv.Text == typed, "the edit buffer still holds what was typed");
+                Check(ui.Editing && tv.HasFocus, "the edit is still live, and still has the keyboard");
+                // The net under the net. Containment above is meant to make a mid-edit
+                // selection change unreachable through the UI, which leaves the guard on the
+                // sync handler asserted by nothing — so drive one directly. It is the last
+                // thing standing between "focus escaped by a route nobody thought of" and the
+                // commit below writing the wrong node's value. The first Check validates the
+                // detector: if the selection will not move, the second proves nothing.
+                var otherNode = (XmlNode)Program.Model.Document?.DocumentElement;
+                if (otherNode != null && !ReferenceEquals(otherNode, editable))
+                {
+                    ui.Tree.SelectedObject = otherNode;
+                    if (Check(ReferenceEquals(ui.Tree.SelectedObject, otherNode),
+                            "arrow drill: a selection change was forced mid-edit"))
+                        Check(tv.Text == typed,
+                            "a forced selection change still cannot touch the edit buffer");
+                    ui.Tree.SelectedObject = editable;
+                }
+                // The corruption itself, pinned by name: commit after the arrows and the value
+                // has to land on the node the edit started on, not on whatever the selection
+                // wandered to. This is what "46613 became http://Employees" was.
+                app.Keyboard.RaiseKeyDownEvent(Key.F2);
+                Check(EditNodeValue.GetNodeValue(editable) == typed,
+                    "a commit after the arrows writes the typed text to the edited node");
+                app.Keyboard.RaiseKeyDownEvent(Key.Z.WithCtrl);
+                Check(EditNodeValue.GetNodeValue(editable) == before + "-edited", "arrow drill: undone");
+
                 app.Keyboard.RaiseKeyDownEvent(Key.S.WithCtrl);
                 Check(!Program.Model.Dirty, "^S saves and clears dirty");
                 Check(!ui.Tree.Title.EndsWith(" *"), "dirty marker clears after save");
@@ -1195,6 +1248,54 @@ namespace Fux
                 // app-scope quit binding consumes it too, and that is the bug.)
                 Check(ui.ValueView.Title.Contains("Esc does not quit"),
                     $"Esc says what does quit instead (title was '{ui.ValueView.Title}')");
+
+                // The state #24 quit from, and the one neither check above can reach: an edit
+                // is live but the value pane does not hold the keyboard. Every keyboard route
+                // into edit mode leaves the pane focused, which is why §7's two Esc checks
+                // pass with that bug present. In real use a mouse click opens the gap;
+                // SetFocus opens it here without needing mouse injection.
+                var escEditable = FindEditable(Program.Model.Document?.DocumentElement);
+                if (escEditable != null)
+                {
+                    ui.Tree.EnsureVisible(escEditable);
+                    ui.Tree.SelectedObject = escEditable;
+                    ui.Tree.SetFocus();
+                    app.Keyboard.RaiseKeyDownEvent(Key.F2);
+                    if (Check(ui.Editing, "esc drill: an edit is live"))
+                    {
+                        // Containment first: the gap should not open at all. Asserted rather
+                        // than assumed, because if focus ever escapes again the Esc rule below
+                        // is the only thing left between the user and a silent exit.
+                        ui.Tree.SetFocus();
+                        Check(ui.ValueView.HasFocus && !ui.Tree.HasFocus,
+                            "a live edit keeps the keyboard: focus will not move to the tree "
+                            + $"(pane {ui.ValueView.HasFocus}, tree {ui.Tree.HasFocus})");
+                        Check(Program.Model.Dirty, "esc drill: there is still unsaved work to lose");
+
+                        // Now the backstop, on its own. Containment makes "edit live, pane
+                        // unfocused" unreachable through the UI — which would leave the rule
+                        // that decides Esc in *every* state asserted by nothing, and that rule
+                        // is the one whose absence shipped as #24. So defeat containment
+                        // deliberately and press the key: whichever of the two guards fails,
+                        // the other still has to refuse to take the document down.
+                        ui.Tree.CanFocus = true;
+                        ui.Tree.SetFocus();
+                        if (Check(ui.Tree.HasFocus && ui.Editing,
+                                $"esc drill: forced the #24 state (tree {ui.Tree.HasFocus}, editing {ui.Editing})"))
+                        {
+                            app.Keyboard.RaiseKeyDownEvent(Key.Esc);
+                            Check(!ui.Top.StopRequested,
+                                "Esc with an edit live and the pane unfocused does not request a stop");
+                            Check(!ui.Editing, "...it cancels the edit instead");
+                            Check(Program.Model.Dirty, "...and the unsaved document is still here");
+                        }
+                        // However that went, do not leave a live edit behind: everything after
+                        // this section runs through the app-wide handler, which is inert on
+                        // most keys while ui.Editing.
+                        if (ui.Editing) app.Keyboard.RaiseKeyDownEvent(Key.Esc);
+                        Check(!ui.Editing, "esc drill: no live edit left behind");
+                    }
+                }
 
                 // The one Esc fux must not eat: a menu opened by accident is dismissed with
                 // it, and the MenuBar's own binding — not the app-scope one — is what does
