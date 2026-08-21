@@ -262,6 +262,52 @@ namespace Fux
                 Check(ui.Editing, "Enter on the tree starts an edit");
                 app.Keyboard.RaiseKeyDownEvent(Key.Esc);
                 Check(!ui.Editing, "Esc closes it again");
+
+                // --- 7a. #22: the menu stops offering what it will not do, and Save means
+                // "commit this and write it" instead of nothing at all.
+                //
+                // Named rows, not counts alone: the report was thirteen live-looking rows that
+                // did nothing, and a check that only counted disabled rows would pass with the
+                // wrong ones disabled. Snippet… is named because it is the row the report came
+                // in about; Cut is named because disabling it would be the same bug pointing
+                // the other way — it is one of the few that still means something mid-edit.
+                var inertSnippet = Array.Find(ui.EditInertMenu, m => m.Title == "_Snippet…");
+                var liveCut = Array.Find(ui.EditLiveMenu, m => m.Title == "Cu_t");
+                Check(inertSnippet != null && liveCut != null,
+                    $"menu drill: found the named rows in {ui.EditInertMenu.Length} inert / {ui.EditLiveMenu.Length} live");
+                Check(Array.TrueForAll(ui.EditInertMenu, m => m.Enabled),
+                    "outside an edit, every row that an edit would disable is enabled");
+
+                app.Keyboard.RaiseKeyDownEvent(Key.F2);
+                Check(Array.TrueForAll(ui.EditInertMenu, m => !m.Enabled),
+                    "an edit disables every row that cannot run during one");
+                Check(inertSnippet != null && !inertSnippet.Enabled, "...Edit ▸ Snippet… among them");
+                Check(Array.TrueForAll(ui.EditLiveMenu, m => m.Enabled),
+                    "...and leaves enabled the rows that still mean something");
+                Check(liveCut != null && liveCut.Enabled, "...Edit ▸ Cut among those");
+                // Both ways out of an edit restore the menu, not just the one that commits.
+                app.Keyboard.RaiseKeyDownEvent(Key.Esc);
+                Check(Array.TrueForAll(ui.EditInertMenu, m => m.Enabled), "Esc re-enables them");
+                app.Keyboard.RaiseKeyDownEvent(Key.F2);
+                app.Keyboard.RaiseKeyDownEvent(Key.F2);
+                Check(Array.TrueForAll(ui.EditInertMenu, m => m.Enabled), "...and so does a commit");
+
+                // Save mid-edit. The oracle is the file, not the dirty flag: the old behaviour
+                // returned silently, which left no save, no error, no cleared marker, and every
+                // reason to believe the paragraph was on disk.
+                app.Keyboard.RaiseKeyDownEvent(Key.F2);
+                tv.Text = "fuxsavedmidedit";
+                app.Keyboard.RaiseKeyDownEvent(Key.S.WithCtrl);
+                Check(!ui.Editing, "^S during an edit commits it");
+                Check(EditNodeValue.GetNodeValue(editable) == "fuxsavedmidedit", "...and writes it to the DOM");
+                Check(!Program.Model.Dirty, "...and clears dirty");
+                Check(System.IO.File.ReadAllText(Program.Model.FileName).Contains("fuxsavedmidedit"),
+                    "...and the typed value is in the file on disk");
+                // Put the document back the way §7 left it, so later sections see what they expect.
+                app.Keyboard.RaiseKeyDownEvent(Key.Z.WithCtrl);
+                Check(EditNodeValue.GetNodeValue(editable) == before + "-edited", "menu drill: undone");
+                app.Keyboard.RaiseKeyDownEvent(Key.S.WithCtrl);
+                Check(!Program.Model.Dirty, "menu drill: saved back clean");
             }
             else
             {
@@ -1352,6 +1398,49 @@ namespace Fux
                 // on a saved document has to stay one keystroke. §15 quits for real.
                 Check(Program.TryOpen(ui, file) == null, "esc drill: the document reopens clean");
                 Check(!Program.Model.Dirty, "esc drill: nothing left to lose");
+
+                // #22: quitting with an uncommitted edit. The model is clean here — the typed
+                // text is in the pane and has not reached the DOM — which is exactly the case
+                // the gate used to wave straight through, taking the paragraph with it. Run on
+                // a clean document on purpose: a dirty one would prompt for the document and
+                // the check would pass without the edit being noticed at all.
+                var quitEditable = FindEditable(Program.Model.Document?.DocumentElement);
+                if (quitEditable != null)
+                {
+                    ui.Tree.EnsureVisible(quitEditable);
+                    ui.Tree.SelectedObject = quitEditable;
+                    ui.Tree.SetFocus();
+                    app.Keyboard.RaiseKeyDownEvent(Key.F2);
+#pragma warning disable CS0618 // TextView: see the BuildUi note on the obsolete flag
+                    ((TextView)ui.ValueView).Text = "fuxuncommitted";
+#pragma warning restore CS0618
+                    if (Check(ui.Editing && !Program.Model.Dirty,
+                            "esc drill: an uncommitted edit, on a document the model calls clean"))
+                    {
+                        int qEscs = 0, qDepth = -1;
+                        // Same shape as the ^Q probe above, and removed just as carefully: a
+                        // timeout left armed fires inside the NEXT nested loop and Escs
+                        // whatever is open there.
+                        var qTok = app.AddTimeout(TimeSpan.FromMilliseconds(100), () =>
+                        {
+                            qEscs++;
+                            if (qDepth < 0) qDepth = ui.ModalDepth;
+                            app.Keyboard.RaiseKeyDownEvent(Key.Esc);
+                            if (qEscs > 20 && !ReferenceEquals(app.TopRunnable, ui.Top))
+                                app.RequestStop(app.TopRunnable);
+                            return qEscs <= 30;
+                        });
+                        app.Keyboard.RaiseKeyDownEvent(Key.Q.WithCtrl);
+                        app.RemoveTimeout(qTok);
+                        Check(qDepth == 1,
+                            $"^Q on an uncommitted edit prompts rather than discarding it (depth was {qDepth})");
+                        Check(!ui.Top.StopRequested, "...and cancelling the prompt keeps the document open");
+                        // Cancel leaves the edit live, by design — that is what Cancel means.
+                        Check(ui.Editing, "...with the edit still live, untouched by the question");
+                    }
+                    if (ui.Editing) app.Keyboard.RaiseKeyDownEvent(Key.Esc);
+                    Check(!ui.Editing && !Program.Model.Dirty, "esc drill: the uncommitted edit is cleaned up");
+                }
             }
 
             // --- 14b. Named blocks. The config is re-read on every ^N, so the drill writes a

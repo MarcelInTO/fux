@@ -259,6 +259,8 @@ namespace Fux
             public ListView ErrorList;
             public List<ErrorItem> Errors;
             public UndoManager Undo;
+            public MenuItem[] EditInertMenu; // rows disabled for the life of an edit (#22)
+            public MenuItem[] EditLiveMenu;  // ...and the rows that must stay enabled through one
             public bool Editing;     // value-pane edit mode (F2 commits, Esc cancels)
             public XmlNode EditNode; // node whose value is being edited
             public int ModalDepth;   // >0 while a dialog/message box runs: app-wide keys stay inert
@@ -305,44 +307,58 @@ namespace Fux
             // Menu items carry hint text only (new Key()): every key gets exactly one live,
             // app-wide binding via the StatusBar shortcuts below — a second binding here
             // could double-fire (fatal for the F2 edit toggle: start + instant commit).
+            // Menu rows that cannot run during a value edit (#22). Registered as they are
+            // built, next to the command each one calls, so the set cannot quietly drift from
+            // the guards it mirrors: every row wrapped here is one whose command returns early
+            // while ui.Editing, and every such command has a row here. Save is deliberately
+            // absent — it commits the edit and then saves (see SaveFile).
+            var editInert = new List<MenuItem>();
+            MenuItem Inert(MenuItem item) { editInert.Add(item); return item; }
+            // ...and the other half of that table, for the same reason. These rows mean
+            // something during an edit — Cut/Copy/Paste act on the text in the field, Edit
+            // Value commits, Save commits and writes, Quit asks — so disabling them would be
+            // the bug in the other direction, and a drill check says so by name.
+            var editLive = new List<MenuItem>();
+            MenuItem Live(MenuItem item) { editLive.Add(item); return item; }
+
             var menu = new MenuBar(new MenuItem[]
             {
                 new MenuBarItem("_File", new View[]
                 {
-                    new MenuItem("_Open…", "^O", () => StartOpen(ui), new Key()),
-                    new MenuItem("_Save", "^S", () => SaveFile(ui), new Key()),
-                    new MenuItem("Save _As…", "", () => StartSaveAs(ui), new Key()), // menu-only: see the key handler
-                    new MenuItem("_Quit", "^Q", () => RequestQuit(ui), new Key()),
+                    Inert(new MenuItem("_Open…", "^O", () => StartOpen(ui), new Key())),
+                    Live(new MenuItem("_Save", "^S", () => SaveFile(ui), new Key())),
+                    Inert(new MenuItem("Save _As…", "", () => StartSaveAs(ui), new Key())), // menu-only: see the key handler
+                    Live(new MenuItem("_Quit", "^Q", () => RequestQuit(ui), new Key())),
                 }),
                 new MenuBarItem("_Edit", new View[]
                 {
-                    new MenuItem("Edit _Value", "F2", () => ToggleValueEdit(ui), new Key()),
+                    Live(new MenuItem("Edit _Value", "F2", () => ToggleValueEdit(ui), new Key())),
                     // Hotkeys t/C/a: the obvious C-u-t and P-a-ste letters are taken by this
                     // menu's other items (see the note below on the nudge rows).
-                    new MenuItem("Cu_t", "^X", () => CutValue(ui), new Key()),
-                    new MenuItem("_Copy", "^C", () => CopyValue(ui), new Key()),
-                    new MenuItem("P_aste", "^V", () => PasteValue(ui), new Key()),
-                    new MenuItem("Re_name…", "^R", () => StartRename(ui), new Key()),
-                    new MenuItem("_Insert…", "^N", () => StartInsert(ui), new Key()),
-                    new MenuItem("_Snippet…", "^B", () => StartSnippets(ui), new Key()),
-                    new MenuItem("_Delete", "Del", () => DeleteSelected(ui), new Key()),
+                    Live(new MenuItem("Cu_t", "^X", () => CutValue(ui), new Key())),
+                    Live(new MenuItem("_Copy", "^C", () => CopyValue(ui), new Key())),
+                    Live(new MenuItem("P_aste", "^V", () => PasteValue(ui), new Key())),
+                    Inert(new MenuItem("Re_name…", "^R", () => StartRename(ui), new Key())),
+                    Inert(new MenuItem("_Insert…", "^N", () => StartInsert(ui), new Key())),
+                    Inert(new MenuItem("_Snippet…", "^B", () => StartSnippets(ui), new Key())),
+                    Inert(new MenuItem("_Delete", "Del", () => DeleteSelected(ui), new Key())),
                     // Hotkeys here avoid V/n/I/D/U/R, already taken by this menu's other items.
-                    new MenuItem("Nudge U_p", "^Shift+Up", () => NudgeSelected(ui, NudgeDir.Up), new Key()),
-                    new MenuItem("Nudge Do_wn", "^Shift+Down", () => NudgeSelected(ui, NudgeDir.Down), new Key()),
-                    new MenuItem("Nudge _Left", "^Shift+Left", () => NudgeSelected(ui, NudgeDir.Left), new Key()),
-                    new MenuItem("Nudge Ri_ght", "^Shift+Right", () => NudgeSelected(ui, NudgeDir.Right), new Key()),
-                    new MenuItem("_Undo", "^Z", () => DoUndo(ui), new Key()),
-                    new MenuItem("_Redo", "^Y", () => DoRedo(ui), new Key()),
+                    Inert(new MenuItem("Nudge U_p", "^Shift+Up", () => NudgeSelected(ui, NudgeDir.Up), new Key())),
+                    Inert(new MenuItem("Nudge Do_wn", "^Shift+Down", () => NudgeSelected(ui, NudgeDir.Down), new Key())),
+                    Inert(new MenuItem("Nudge _Left", "^Shift+Left", () => NudgeSelected(ui, NudgeDir.Left), new Key())),
+                    Inert(new MenuItem("Nudge Ri_ght", "^Shift+Right", () => NudgeSelected(ui, NudgeDir.Right), new Key())),
+                    Inert(new MenuItem("_Undo", "^Z", () => DoUndo(ui), new Key())),
+                    Inert(new MenuItem("_Redo", "^Y", () => DoRedo(ui), new Key())),
                 }),
                 new MenuBarItem("_Search", new View[]
                 {
-                    new MenuItem("_Find…", "^F", () => StartFind(ui), new Key()),
-                    new MenuItem("Find _Next", "F3", () => FindAgain(ui, false), new Key()),
-                    new MenuItem("Find _Previous", "Shift+F3", () => FindAgain(ui, true), new Key()),
+                    Inert(new MenuItem("_Find…", "^F", () => StartFind(ui), new Key())),
+                    Inert(new MenuItem("Find _Next", "F3", () => FindAgain(ui, false), new Key())),
+                    Inert(new MenuItem("Find _Previous", "Shift+F3", () => FindAgain(ui, true), new Key())),
                 }),
                 new MenuBarItem("_View", new View[]
                 {
-                    new MenuItem("_Toggle Light/Dark", "F5", () => ToggleTheme(ui), new Key()),
+                    Live(new MenuItem("_Toggle Light/Dark", "F5", () => ToggleTheme(ui), new Key())),
                 }),
                 new MenuBarItem("_Help", new View[]
                 {
@@ -561,7 +577,7 @@ namespace Fux
             {
                 App = app, Top = top, Menu = menu, Status = status,
                 Tree = tree, ValueView = valueView, ErrorList = errorList, Errors = errors,
-                Undo = undo,
+                Undo = undo, EditInertMenu = editInert.ToArray(), EditLiveMenu = editLive.ToArray(),
             };
             Revalidate(ui);
             UpdateTitle(ui);
@@ -657,6 +673,23 @@ namespace Fux
         {
             ui.Tree.CanFocus = !editing;
             ui.ErrorList.CanFocus = !editing;
+            // ...and stop the menu offering what it will not do. The commands guard themselves
+            // already, correctly and invisibly: the row highlighted, the menu closed, and
+            // nothing happened or was said (#22). MenuItem derives from View, so Enabled
+            // applies, and Theme.Content.Disabled already renders it.
+            if (ui.EditInertMenu != null)
+                foreach (var item in ui.EditInertMenu) item.Enabled = !editing;
+        }
+
+        // One place to say why a command declined, so a chord and its menu row give the same
+        // answer. The disabled row covers the menu; the keyboard has no affordance at all, and
+        // ^B mid-edit was exactly as silent as the row it mirrors (#22). The value pane's
+        // border title is already the channel for transient status.
+        private static bool BusyEditing(Ui ui)
+        {
+            if (ui == null || !ui.Editing) return false;
+            SetValueStatus(ui, "finish the edit first — F2 commits, Esc cancels");
+            return true;
         }
 
         // Leave edit mode and restore the read-only value pane from the DOM.
@@ -852,7 +885,7 @@ namespace Fux
         // is TryRename (headless-testable); the dialog is only the text collector.
         private static void StartRename(Ui ui)
         {
-            if (ui == null || ui.Editing) return;
+            if (ui == null || BusyEditing(ui)) return;
             var n = ui.Tree.SelectedObject;
             if (n == null || !RenameNode.CanRename(n)) return;
 
@@ -885,7 +918,7 @@ namespace Fux
         // into one dialog meant a mode switch inside it.
         internal static void StartInsert(Ui ui)
         {
-            if (ui == null || ui.Editing) return;
+            if (ui == null || BusyEditing(ui)) return;
             var n = ui.Tree.SelectedObject;
             if (n == null) return;
 
@@ -950,7 +983,7 @@ namespace Fux
         // reason. The list takes focus on open, so the whole gesture is ^B, arrow, Enter.
         internal static void StartSnippets(Ui ui)
         {
-            if (ui == null || ui.Editing) return;
+            if (ui == null || BusyEditing(ui)) return;
             var n = ui.Tree.SelectedObject;
             if (n == null) return;
 
@@ -1071,7 +1104,7 @@ namespace Fux
         // Del deletes the selected node (undoable, so no confirmation).
         private static void DeleteSelected(Ui ui)
         {
-            if (ui == null || ui.Editing) return;
+            if (ui == null || BusyEditing(ui)) return;
             var n = ui.Tree.SelectedObject;
             if (n == null) return;
             var err = TryDelete(ui, n);
@@ -1104,7 +1137,7 @@ namespace Fux
         // and insert, the dialog is only the collector: TryFind is the headless-testable path.
         private static void StartFind(Ui ui)
         {
-            if (ui == null || ui.Editing) return;
+            if (ui == null || BusyEditing(ui)) return;
 
             var field = new TextField { X = 1, Y = 1, Width = Dim.Fill(1), Text = ui.FindExpr ?? "" };
             var modeSel = new OptionSelector
@@ -1162,7 +1195,7 @@ namespace Fux
         // rather than doing nothing quietly.
         private static void FindAgain(Ui ui, bool backwards)
         {
-            if (ui == null || ui.Editing) return;
+            if (ui == null || BusyEditing(ui)) return;
             if (string.IsNullOrEmpty(ui.FindExpr)) { StartFind(ui); return; }
             TryFind(ui, backwards);
         }
@@ -1238,7 +1271,7 @@ namespace Fux
         // edge of a document should feel like running into the end of a list.
         private static void NudgeSelected(Ui ui, NudgeDir dir)
         {
-            if (ui == null || ui.Editing) return;
+            if (ui == null || BusyEditing(ui)) return;
             var err = TryNudge(ui, ui.Tree.SelectedObject, dir);
             if (err != null)
                 ModalQuery(ui, "Move failed", err, "OK");
@@ -1302,13 +1335,13 @@ namespace Fux
 
         private static void DoUndo(Ui ui)
         {
-            if (ui == null || ui.Editing) return;
+            if (ui == null || BusyEditing(ui)) return;
             ui.Undo.Undo(); // no-ops when the stack is empty
         }
 
         private static void DoRedo(Ui ui)
         {
-            if (ui == null || ui.Editing) return;
+            if (ui == null || BusyEditing(ui)) return;
             ui.Undo.Redo();
         }
 
@@ -1420,7 +1453,14 @@ namespace Fux
 
         private static void SaveFile(Ui ui)
         {
-            if (ui == null || ui.Editing) return;
+            if (ui == null) return;
+            // Save while typing means "commit this and write the file" — that is what the
+            // keystroke means to someone mid-paragraph, and it is why Save is the one command
+            // here that is not disabled during an edit. Refusing silently was #22's worst
+            // case: no save, no error, no dirty marker cleared, and every reason to believe
+            // the work was on disk. An implicit commit is the lesser surprise, and it is
+            // undoable — CommitValueEdit pushes through the UndoManager like any other edit.
+            if (ui.Editing) CommitValueEdit(ui);
             if (_model.FileName == null) { StartSaveAs(ui); return; } // nowhere to save yet: ask
             try
             {
@@ -1438,7 +1478,13 @@ namespace Fux
         // either way the document must stay put.
         private static bool ConfirmDiscard(Ui ui)
         {
-            if (!_model.Dirty) return true;
+            // A live edit is unsaved work the model cannot see. The text is in the value pane
+            // and has not reached the DOM, so Dirty is false and the gate waved a quit straight
+            // through with the paragraph still in it (#22). Asking is the whole answer here:
+            // Save commits and writes (SaveFile does the commit), Discard drops it because the
+            // user said so, and Cancel leaves the edit exactly as it was — which is why this
+            // does not commit up front. Committing before asking would make Cancel destructive.
+            if (!_model.Dirty && !(ui != null && ui.Editing)) return true;
             var name = _model.FileName == null ? "this document" : System.IO.Path.GetFileName(_model.FileName);
             int choice = ModalQuery(ui, "Unsaved changes", $"Save changes to {name}?", "Save", "Discard", "Cancel") ?? 2;
             if (choice == 0) { SaveFile(ui); return !_model.Dirty; } // save failed → stay
@@ -1469,7 +1515,7 @@ namespace Fux
 
         private static void StartOpen(Ui ui)
         {
-            if (ui == null || ui.Editing) return;
+            if (ui == null || BusyEditing(ui)) return;
             if (!ConfirmDiscard(ui)) return;
 
             var d = new OpenDialog { Title = "Open", OpenMode = OpenMode.File, AllowsMultipleSelection = false };
@@ -1486,7 +1532,7 @@ namespace Fux
 
         private static void StartSaveAs(Ui ui)
         {
-            if (ui == null || ui.Editing) return;
+            if (ui == null || BusyEditing(ui)) return;
 
             var d = new SaveDialog { Title = "Save As" };
             d.HotKeySpecifier = NoHotKey;
