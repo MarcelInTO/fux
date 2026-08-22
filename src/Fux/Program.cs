@@ -1107,9 +1107,67 @@ namespace Fux
             if (ui == null || BusyEditing(ui)) return;
             var n = ui.Tree.SelectedObject;
             if (n == null) return;
+            if (!ConfirmDelete(ui, n)) return;
             var err = TryDelete(ui, n);
             if (err != null)
                 ModalQuery(ui, "Delete failed", err, "OK");
+        }
+
+        // Del sits beside the navigation keys, takes no modifier, and the cursor is already in
+        // the tree — and the tree gives a row to every element *and every attribute*, so one
+        // keypress on a collapsed <division> can take 1899 rows of a book with it. That the
+        // delete is undoable was the original reason not to ask, and it is not wrong; the case
+        // for asking is that undo only helps someone who notices, and a stray Del leaves nothing
+        // on screen to notice (#21).
+        //
+        // Asked only when something goes with the node. A leaf — an attribute, an empty element,
+        // an element whose only content is its own text — is the most common delete there is and
+        // the most trivially restored, and a modal in front of it would train people to dismiss
+        // the modal. Naming the count is the point: "Delete this node?" teaches the reflex that
+        // makes the prompt useless.
+        //
+        // Esc makes ModalQuery return null, which is not the confirming index either, so backing
+        // out of the prompt is as safe as choosing Cancel.
+        //
+        // Cancel goes LAST, because that is what makes it the default button: MessageBox marks
+        // the last label as default, not the first. Measured, not assumed — the ^Q prompt renders
+        // "Save, Discard, Cancel" with the default brackets on Cancel, and this prompt was
+        // written the other way round first and rendered ⟦► Delete ◄⟧, arming exactly the
+        // reflexive Enter the confirmation exists to stop.
+        //
+        // DeleteConfirmed is the index that proceeds, and it sits next to the array because the
+        // two only mean anything together: reorder one without the other and the prompt inverts,
+        // with Cancel deleting. The drill cannot catch that by pressing the button — MessageBox's
+        // Dialog exposes no SubViews in 2.4.17 (its adornments are lightweight settings objects,
+        // not views), and injected keys reach only app-scope bindings, which is why Esc appears
+        // to work while Tab and the arrows do nothing — so it asserts the pairing from here.
+        internal static readonly string[] DeleteButtons = { "Delete", "Cancel" };
+        internal const int DeleteConfirmed = 0;
+
+        // Does deleting this node take anything else with it? The one rule behind the prompt.
+        internal static bool NeedsDeleteConfirm(XmlNode n) => n != null && TreeRows(n) > 1;
+
+        internal static string DeletePrompt(XmlNode n)
+        {
+            int under = TreeRows(n) - 1;
+            return $"Delete {GetLabel(n)} and the {under} row{(under == 1 ? "" : "s")} under it?";
+        }
+
+        private static bool ConfirmDelete(Ui ui, XmlNode n)
+        {
+            if (!NeedsDeleteConfirm(n)) return true;
+            return ModalQuery(ui, "Delete", DeletePrompt(n), DeleteButtons) == DeleteConfirmed;
+        }
+
+        // Rows the tree draws for this node and everything beneath it. Counted through
+        // GetChildren, the same rule that draws them, so the number in the prompt is the number
+        // of rows that will actually disappear — attributes included, and they are the bulk of
+        // a marked-up book.
+        private static int TreeRows(XmlNode n)
+        {
+            int rows = 1;
+            foreach (var c in GetChildren(n)) rows += TreeRows(c);
+            return rows;
         }
 
         // Push a delete through the undo stack. Returns null on success, else the reason.
