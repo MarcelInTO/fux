@@ -83,7 +83,7 @@ file.
 | `^R` | rename element / attribute / PI |
 | `^N` | insert element, attribute, comment or PI |
 | `^B` | insert a named block (see [Named blocks](#named-blocks)) |
-| `Del` | delete node |
+| `Del` | delete node (asks first if anything goes with it) |
 | `^Shift+←↑↓→` | nudge: reorder siblings, promote / demote |
 | `^Z` / `^Y` | undo / redo |
 | `^F`, `F3`, `Shift+F3` | find (text, regex or XPath), next, previous |

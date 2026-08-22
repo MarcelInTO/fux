@@ -479,7 +479,78 @@ namespace Fux
                         : "the previous sibling";
                     ui.Tree.SelectedObject = firstChild;
                     ui.Tree.SetFocus();
-                    app.Keyboard.RaiseKeyDownEvent(Key.DeleteChar);
+
+                    // #21: Del asks first when the node takes others with it, so the keypress
+                    // opens a modal whose nested Run would block the injector this harness
+                    // depends on. That loop is a real main loop, so a timeout armed beforehand
+                    // fires inside it and can answer — the §14a recipe. Whether it asks at all
+                    // is derived from the node, not assumed: the CI fixtures differ on whether
+                    // the root's first element has anything under it.
+                    bool asks9 = System.Linq.Enumerable.Any(Program.GetChildren(firstChild));
+                    var top9b = ui.Undo.Peek();
+
+                    // First, cancel it. Nothing may move: not the document, not the selection,
+                    // not the undo stack. This is the half that makes the prompt a guard rather
+                    // than a speed bump, and no other check covers it.
+                    if (asks9)
+                    {
+                        int cTick = 0, cDepth = -1;
+                        var cTok = app.AddTimeout(TimeSpan.FromMilliseconds(100), () =>
+                        {
+                            if (ui.ModalDepth == 0) return true; // no prompt up: stay out of the main loop
+                            cTick++;
+                            if (cDepth < 0) cDepth = ui.ModalDepth;
+                            app.Keyboard.RaiseKeyDownEvent(Key.Esc);
+                            if (cTick > 20 && !ReferenceEquals(app.TopRunnable, ui.Top))
+                                app.RequestStop(app.TopRunnable);
+                            return cTick <= 30;
+                        });
+                        app.Keyboard.RaiseKeyDownEvent(Key.DeleteChar);
+                        app.RemoveTimeout(cTok);
+                        Check(cDepth == 1, $"Del on a node with children asks first (modal depth was {cDepth})");
+                        Check(firstChild.ParentNode != null, "a cancelled delete leaves the node in the document");
+                        Check(ReferenceEquals(ui.Undo.Peek(), top9b), "...pushes nothing onto the undo stack");
+                        Check(ReferenceEquals(ui.Tree.SelectedObject, firstChild), "...and leaves the selection alone");
+                    }
+
+                    // The prompt's own shape, asserted from the constants rather than by
+                    // pressing the button. This harness CANNOT press it: MessageBox's Dialog
+                    // exposes no SubViews in 2.4.17 (checked — its adornments are lightweight
+                    // settings objects, not views, so the buttons are not there either), and
+                    // injected keys reach only app-scope bindings, which is why Esc appears to
+                    // work while Tab and the arrows do nothing. So the button ORDER and the
+                    // index that proceeds are pinned here; what is not covered is the press
+                    // itself, and nothing in this file should be read as claiming otherwise.
+                    Check(Program.DeleteButtons.Length == 2
+                          && Program.DeleteButtons[Program.DeleteButtons.Length - 1] == "Cancel",
+                        "Cancel is the delete prompt's LAST button, which is the one MessageBox defaults to");
+                    Check(Program.DeleteButtons[Program.DeleteConfirmed] == "Delete",
+                        "...and the index that proceeds is the Delete button");
+                    Check(Program.NeedsDeleteConfirm(firstChild) == asks9,
+                        $"the prompt rule matches what is under the node (asks={asks9})");
+                    // ...and the other side of the rule, which is the whole reason it is a rule
+                    // and not "always ask": a leaf costs nothing to restore, is the commonest
+                    // delete there is, and a modal in front of it would train people to dismiss
+                    // modals. Searched for rather than assumed — not every fixture has attributes.
+                    var leaf9 = FindLeaf(Program.Model.Document?.DocumentElement);
+                    if (Check(leaf9 != null, "delete drill: found a leaf node"))
+                        Check(!Program.NeedsDeleteConfirm(leaf9),
+                            $"deleting a leaf ({Program.GetLabel(leaf9)}) does not ask");
+                    if (asks9)
+                        Check(Program.DeletePrompt(firstChild).Contains(Program.GetLabel(firstChild))
+                              && Program.DeletePrompt(firstChild).Contains(" row"),
+                            $"the prompt names the node and the count: \"{Program.DeletePrompt(firstChild)}\"");
+
+                    // The deletion itself goes through the commit path the prompt guards, which
+                    // is what every other delete check in this file uses too.
+                    //
+                    // Guarded on the node still being attached, because if the cancel above
+                    // failed to cancel, this node is already gone and DeleteNode would take a
+                    // null container straight into a NullReferenceException — which does not
+                    // fail the run, it ENDS it, truncating the report at 120 of 388 checks and
+                    // hiding everything after. Measured while mutation-testing this section.
+                    if (firstChild.ParentNode != null)
+                        Check(Program.TryDelete(ui, firstChild) == null, "the guarded delete is accepted");
                     Check(firstChild.ParentNode == null, "Del removes the selected element");
                     Check(ReferenceEquals(ui.Tree.SelectedObject, landing9),
                         $"Del lands on the surviving neighbour — here, {landing9What}");
@@ -1906,6 +1977,21 @@ namespace Fux
             for (var s = n?.NextSibling; s != null; s = s.NextSibling)
                 if (Program.IsShown(s)) return s;
             return null;
+        }
+
+        // The first node with no rows under it, depth-first. Used to check the half of the
+        // delete rule that says nothing should be asked.
+        private static XmlNode FindLeaf(XmlNode n)
+        {
+            if (n == null) return null;
+            bool any = false;
+            foreach (var c in Program.GetChildren(n))
+            {
+                any = true;
+                var hit = FindLeaf(c);
+                if (hit != null) return hit;
+            }
+            return any ? null : n;
         }
 
         private static XmlNode PrevShown(XmlNode n)
