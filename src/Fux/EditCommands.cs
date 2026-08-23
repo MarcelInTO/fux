@@ -600,7 +600,18 @@ namespace Fux
                 // line; leaving them behind would turn every delete into a blank line. Taking
                 // the *leading* one keeps the container's trailing indent — the whitespace
                 // before its end tag — intact.
-                _ws = XmlLayout.LeadingWhitespace(_node);
+                //
+                // Claimed only where an insert would have created it, which is what makes the
+                // two symmetric. Unconditionally, a delete took whitespace it had never been
+                // given: in a container fux lays out inline, InsertNode plans none, so the
+                // whitespace in front of a node there belongs to a sibling's line, and each
+                // insert-then-delete cycle removed one node more than it added (#1). Asking
+                // ShouldIndent — the same question PlanLayout asks — cannot drift from it.
+                //
+                // In a container that really is inline this leaves a pre-existing node's indent
+                // behind rather than destroying it. That is the deliberate direction to err: a
+                // delete should not invent layout changes in a region the user did not touch.
+                _ws = XmlLayout.ShouldIndent(_container) ? XmlLayout.LeadingWhitespace(_node) : null;
                 _container.RemoveChild(_node);
                 if (_ws != null) _container.RemoveChild(_ws);
             }
