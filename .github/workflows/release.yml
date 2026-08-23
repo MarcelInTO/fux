@@ -81,6 +81,12 @@ jobs:
 
       # -p:Version overrides the placeholder in Fux.csproj as a global MSBuild property.
       # It reaches the About box, which reads the assembly version at runtime.
+      # InformationalVersion is what --version, the About box and the usage text print (#26);
+      # a build from source gets `git describe` there. Passed explicitly rather than left to
+      # default from Version, because those two differ on a prerelease: Version is the whole
+      # tag (0.2.0-rc.1) while the assertions below — and the About box before this change —
+      # use the numeric core (0.2.0). Setting it to core keeps a released binary printing
+      # exactly what it printed before.
       - name: Publish self-contained single-file binary
         shell: bash
         run: >
@@ -88,6 +94,7 @@ jobs:
           -r ${{ matrix.rid }} --self-contained true
           -p:PublishSingleFile=true
           -p:Version=${{ steps.version.outputs.version }}
+          -p:InformationalVersion=${{ steps.version.outputs.core }}
           -o publish
 
       # Third-party native libraries are NOT bundled into a single-file publish; they are

@@ -23,6 +23,18 @@ PREFIX  ?= /usr/local
 DESTDIR ?=
 FILE    ?= sandbox/testdata/emp.xml
 
+# What a build from source calls itself. `git describe --tags --always --dirty` says both
+# "newer than 0.3.0" and "here is the commit" (0.3.0-5-g87dd03e), and flags a tree that
+# matches no commit at all (-dirty). Empty outside a checkout, or with no git installed — the
+# property is then not passed at all and the csproj placeholder stands, so the build still
+# works. A release does not use this: release.yml passes the tag itself.
+# The leading v of the tag is stripped, so a build from source reads "fux 0.3.0-8-g3738819"
+# rather than "fux v0.3.0-8-g3738819" — the same shape a release prints, with the commit added.
+GIT_DESCRIBE := $(shell git describe --tags --always --dirty 2>/dev/null | sed 's/^v//')
+ifneq ($(GIT_DESCRIBE),)
+  VERSION_ARG := -p:InformationalVersion=$(GIT_DESCRIBE)
+endif
+
 # Detect the host runtime identifier for a native, self-contained build.
 UNAME_S := $(shell uname -s)
 UNAME_M := $(shell uname -m)
@@ -46,7 +58,7 @@ endif
 ## build: self-contained single-file binary for this host -> bin/fux
 build:
 	@test -n "$(RID)" || { echo "fux: unsupported host $(UNAME_S)/$(UNAME_M); pass RID=..."; exit 1; }
-	dotnet publish $(PROJECT) -c $(CONFIG) -r $(RID) --self-contained true -p:PublishSingleFile=true -o $(BIN)
+	dotnet publish $(PROJECT) -c $(CONFIG) -r $(RID) --self-contained true -p:PublishSingleFile=true $(VERSION_ARG) -o $(BIN)
 	@echo "fux: built $(EXE) ($(RID))"
 
 ## install: copy the binary to $(PREFIX)/bin (may need sudo)

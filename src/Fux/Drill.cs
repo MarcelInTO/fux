@@ -1454,8 +1454,20 @@ namespace Fux
                 Check(about.Contains("Copyright (c) Microsoft Corporation"), "About names the upstream copyright");
                 Check(about.Contains("MIT"), "About names the license");
                 Check(about.Contains("Not endorsed by"), "About disclaims endorsement");
-                var version = typeof(Program).Assembly.GetName().Version.ToString(3);
+                // Read from the same accessor the About box uses, not from AssemblyVersion:
+                // the two say different things now. A build from source stamps `git describe`
+                // into InformationalVersion, while AssemblyVersion stays at the numeric
+                // placeholder, so comparing against AssemblyVersion here would assert that the
+                // About box carries 0.0.0 — which is exactly the string #26 was about.
+                var version = Program.VersionString;
                 Check(about.Contains("fux " + version), $"About carries the build version ({version})");
+                Check(Program.UsageText().StartsWith("fux " + version),
+                    "...and the usage text says the same thing");
+                // The SDK appends "+<sha>" to InformationalVersion unless told not to, and that
+                // would break release.yml's exact version assertion on the next release rather
+                // than here. Fux.csproj turns it off; this is what notices if that stops working.
+                Check(!version.Contains("+"),
+                    $"the build version carries no '+<sha>' suffix (was '{version}')");
                 // MessageBox sizes itself to the longest line; keep it inside 80 columns.
                 int widest = 0;
                 foreach (var line in about.Split('\n')) if (line.Length > widest) widest = line.Length;
