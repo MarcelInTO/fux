@@ -84,10 +84,23 @@ jobs:
             echo "$out" | grep -q "^  fux $row" || { echo "::error::--help omits the '$row' row"; exit 1; }
           done
 
+          # --version is the first question on any bug report, so both halves are pinned (#26).
+          # Unstamped: the csproj placeholder, which now carries a -dev suffix, so the pattern
+          # allows a semver pre-release part rather than three bare numbers.
           ver=$(dotnet run --project src/Fux -c Release -- --version < /dev/null)
           echo "$ver"
-          echo "$ver" | grep -qE '^fux [0-9]+\.[0-9]+\.[0-9]+$' \
+          echo "$ver" | grep -qE '^fux [0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$' \
             || { echo "::error::--version printed '$ver'"; exit 1; }
+
+          # Stamped: whatever InformationalVersion is set to has to come out the other end
+          # verbatim. This is the plumbing the Makefile and release.yml both rely on, and the
+          # only cheap way to test it without a full publish. The value is deliberately not a
+          # plausible version, so a match cannot be a coincidence.
+          stamped=$(dotnet run --project src/Fux -c Release \
+            -p:InformationalVersion=9.9.9-fuxstamp-gdeadbee -- --version < /dev/null)
+          echo "$stamped"
+          echo "$stamped" | grep -qxF 'fux 9.9.9-fuxstamp-gdeadbee' \
+            || { echo "::error::InformationalVersion did not reach --version (got '$stamped')"; exit 1; }
 
           set +e
           err=$(dotnet run --project src/Fux -c Release -- --nope < /dev/null 2>&1)
@@ -96,6 +109,21 @@ jobs:
           echo "$err"
           [ "$code" -eq 2 ] || { echo "::error::unknown option should exit 2 (got $code)"; exit 1; }
           echo "$err" | grep -q "unknown option" || { echo "::error::unknown option went unreported"; exit 1; }
+
+      # The other half of #26: the plumbing above is useless if the Makefile stops using it, and
+      # a build from source is what `make install` puts on someone's PATH. A dry run is enough
+      # to see the property on the command line, and costs nothing. Skipped rather than assumed
+      # when git can describe nothing at all — say so, so a silent skip is not read as a pass.
+      - name: Makefile stamps the build version
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          if [ -z "$(git describe --tags --always --dirty 2>/dev/null)" ]; then
+            echo "no git description available here; skipping the stamp check"
+            exit 0
+          fi
+          make -n build | grep -q 'InformationalVersion=' \
+            || { echo "::error::make build no longer stamps InformationalVersion"; exit 1; }
 
       # --dump loads the file into the DOM and prints the tree; no TTY needed.
       - name: Headless render smoke (Fux --dump)

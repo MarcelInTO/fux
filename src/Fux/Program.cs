@@ -24,7 +24,7 @@ namespace Fux
             }
             if (Array.IndexOf(args, "--version") >= 0)
             {
-                Console.WriteLine("fux " + typeof(Program).Assembly.GetName().Version.ToString(3));
+                Console.WriteLine("fux " + VersionString);
                 return 0;
             }
 
@@ -823,9 +823,30 @@ namespace Fux
         // does with an unfamiliar binary is ask it what it is, and that answer has to arrive
         // without a TTY, a document, or a running UI. Version comes from the assembly, so it
         // matches the release the binary was downloaded from.
+        // The one version string every surface prints: --version, the About box and the usage
+        // text. InformationalVersion rather than AssemblyVersion, because AssemblyVersion is a
+        // four-part numeric System.Version and cannot hold what identifies a build from source —
+        // `git describe` output like 0.3.0-5-g87dd03e, or -dirty when the tree matches no commit
+        // at all. Every local build used to report 0.0.0, which is consistent with every local
+        // build ever made and so excluded nothing on a bug report (#26).
+        //
+        // A release passes it explicitly (release.yml), so released binaries print exactly the
+        // tag as they always have. The fallback is for an assembly built without the property.
+        internal static string VersionString { get; } = ReadVersion();
+
+        private static string ReadVersion()
+        {
+            var info = System.Reflection.CustomAttributeExtensions
+                .GetCustomAttribute<System.Reflection.AssemblyInformationalVersionAttribute>(
+                    typeof(Program).Assembly)?.InformationalVersion;
+            return string.IsNullOrWhiteSpace(info)
+                ? typeof(Program).Assembly.GetName().Version.ToString(3)
+                : info;
+        }
+
         internal static string UsageText()
         {
-            var version = typeof(Program).Assembly.GetName().Version.ToString(3);
+            var version = VersionString;
             return "fux " + version + " — a cross-platform terminal XML editor.\n"
                 + "\n"
                 + "Usage:\n"
@@ -852,7 +873,7 @@ namespace Fux
 
         internal static string AboutText()
         {
-            return "fux " + typeof(Program).Assembly.GetName().Version.ToString(3) + "\n"
+            return "fux " + VersionString + "\n"
                 + "A cross-platform terminal XML editor.\n"
                 + "\n"
                 + "Copyright (c) 2026 Marcel Samek. MIT licensed.\n"

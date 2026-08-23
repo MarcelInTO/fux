@@ -62,6 +62,11 @@ fux --help                 # usage summary
 fux --version              # version only
 ```
 
+A release reports its tag (`fux 0.3.0`). A build from source reports the commit it
+came from instead — `fux 0.3.0-8-g3738819`, with `-dirty` appended when the working
+tree did not match any commit — so `--version` identifies the binary you are actually
+running. Built outside a git checkout, it falls back to `fux 0.0.0-dev`.
+
 Before overwriting a file, fux copies its previous contents next to it as
 `<name>.<YYYYMMDD-HHMMSS>.bak` — `doc.xml` becomes `doc.xml.20260815-142530.bak`.
 A save that changes nothing writes no backup, and old ones are left for you to

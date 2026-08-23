@@ -41,6 +41,15 @@
       since shipped and meant something else.
     -->
     <Version>0.0.0-dev</Version>
+    <!--
+      The version flag, the About box and the usage text all print InformationalVersion, which
+      the Makefile sets from `git describe` so a build from source names the commit it came
+      from (issue 26). Since .NET 8 the SDK appends "+&lt;commit sha&gt;" to that property by
+      default, which would turn a release's "fux 0.3.0" into "fux 0.3.0+abc1234" and fail the
+      exact version assertion in release.yml. Turned off, so the property is exactly what the
+      build was told to use; a drill check fails if a "+" ever comes back.
+    -->
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
   </PropertyGroup>
 
   <ItemGroup>
