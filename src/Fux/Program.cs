@@ -895,6 +895,18 @@ namespace Fux
         }
 
         // Runnable, not Dialog: the file pickers derive from Dialog<T>, which is not a Dialog.
+        //
+        // The caller owns the view and must dispose it in a `finally`, not on the last line of
+        // the method — every site here does, and a seventh should too. Nothing between
+        // constructing a dialog and tearing it down is guaranteed to return: building the view,
+        // adding a button, taking focus and running the modal can all throw, and an unguarded
+        // Dispose is then skipped and the whole subtree leaks for the life of the session (#25,
+        // code scanning alert 1050). Dialog layout throwing is not hypothetical in this
+        // codebase — a MessageBox dies on `width ('-3')` when the driver has not learned the
+        // terminal size, which is exactly when a user would be opening dialogs that all leak.
+        //
+        // Read whatever the dialog is being asked for into locals inside the `try`; the values
+        // have to outlive the view, and disposing it first would read from a torn-down view.
         private static void RunModal(Ui ui, Runnable d)
         {
             ui.ModalDepth++;
@@ -911,20 +923,25 @@ namespace Fux
             if (n == null || !RenameNode.CanRename(n)) return;
 
             var field = new TextField { X = 1, Y = 1, Width = Dim.Fill(1), Text = n.Name };
+            bool ok = false;
+            string newName = null;
             var d = new Dialog
             {
                 Title = $"Rename {n.NodeType}",
                 Width = 46, Height = 8,
             };
-            d.Add(new Label { X = 1, Y = 0, Text = "New name:" }, field);
-            d.AddButton(new Button { Text = "Cancel" }); // Result 0
-            d.AddButton(new Button { Text = "OK" });     // Result 1; last added = default (Enter)
-            field.SetFocus();
-            field.MoveEnd(); // type to append; cursor at 0 would prepend into the prefilled name
-            RunModal(ui, d);
-            bool ok = d.Result is 1;
-            var newName = field.Text;
-            d.Dispose();
+            try
+            {
+                d.Add(new Label { X = 1, Y = 0, Text = "New name:" }, field);
+                d.AddButton(new Button { Text = "Cancel" }); // Result 0
+                d.AddButton(new Button { Text = "OK" });     // Result 1; last added = default (Enter)
+                field.SetFocus();
+                field.MoveEnd(); // type to append; cursor at 0 would prepend into the prefilled name
+                RunModal(ui, d);
+                ok = d.Result is 1;
+                newName = field.Text;
+            }
+            finally { d.Dispose(); }
             if (!ok || newName == n.Name) return;
 
             var err = TryRename(ui, n, newName);
@@ -956,22 +973,29 @@ namespace Fux
                 Value = 0,
             };
             var field = new TextField { X = 1, Y = 1, Width = Dim.Fill(1) };
+            bool ok = false;
+            InsertKind kind = InsertKind.Element;
+            InsertPos pos = InsertPos.Child;
+            string name = null;
             var d = new Dialog
             {
                 Title = $"Insert at {GetLabel(n)}",
                 Width = 50, Height = 12,
             };
-            d.HotKeySpecifier = NoHotKey; // the title carries a node name — see NoHotKey
-            d.Add(new Label { X = 1, Y = 0, Text = "Name (element/attribute/PI):" }, field, kindSel, posSel);
-            d.AddButton(new Button { Text = "Cancel" }); // Result 0
-            d.AddButton(new Button { Text = "OK" });     // Result 1; last added = default (Enter)
-            field.SetFocus();
-            RunModal(ui, d);
-            bool ok = d.Result is 1;
-            var kind = (InsertKind)(kindSel.Value ?? 0);
-            var pos = PosAt(posSel.Value ?? 0);
-            var name = field.Text;
-            d.Dispose();
+            try
+            {
+                d.HotKeySpecifier = NoHotKey; // the title carries a node name — see NoHotKey
+                d.Add(new Label { X = 1, Y = 0, Text = "Name (element/attribute/PI):" }, field, kindSel, posSel);
+                d.AddButton(new Button { Text = "Cancel" }); // Result 0
+                d.AddButton(new Button { Text = "OK" });     // Result 1; last added = default (Enter)
+                field.SetFocus();
+                RunModal(ui, d);
+                ok = d.Result is 1;
+                kind = (InsertKind)(kindSel.Value ?? 0);
+                pos = PosAt(posSel.Value ?? 0);
+                name = field.Text;
+            }
+            finally { d.Dispose(); }
             if (!ok) return;
 
             var err = TryInsert(ui, n, kind, pos, name);
@@ -1054,30 +1078,35 @@ namespace Fux
                 Title = $"Snippet at {GetLabel(n)}",
                 Width = width, Height = height,
             };
-            d.HotKeySpecifier = NoHotKey; // the title carries a node name — see NoHotKey
-            d.Add(posSel, list);
-            d.AddButton(new Button { Text = "Cancel" }); // Result 0
-            d.AddButton(new Button { Text = "OK" });     // Result 1; last added = default (Enter)
-
-            // Enter on the list commits, so the whole gesture is ^B, arrow, Enter — no Tab,
-            // no button, no mouse. Bound explicitly: 2.4.17 has no OpenSelectedItem event, and
-            // Accept does NOT bubble from a ListView to the dialog's default button (drilled —
-            // the assumption that it did failed the check that pins this).
-            bool accepted = false;
-            list.KeyDown += (s, e) =>
+            bool ok = false;
+            int chosen = 0, posIndex = 0;
+            try
             {
-                if (e.KeyCode != Key.Enter.KeyCode) return;
-                accepted = true;
-                e.Handled = true;
-                ui.App.RequestStop(d);
-            };
+                d.HotKeySpecifier = NoHotKey; // the title carries a node name — see NoHotKey
+                d.Add(posSel, list);
+                d.AddButton(new Button { Text = "Cancel" }); // Result 0
+                d.AddButton(new Button { Text = "OK" });     // Result 1; last added = default (Enter)
 
-            list.SetFocus();
-            RunModal(ui, d);
-            bool ok = accepted || d.Result is 1;
-            int chosen = list.SelectedItem ?? 0;
-            int posIndex = posSel.Value ?? 0;
-            d.Dispose();
+                // Enter on the list commits, so the whole gesture is ^B, arrow, Enter — no Tab,
+                // no button, no mouse. Bound explicitly: 2.4.17 has no OpenSelectedItem event, and
+                // Accept does NOT bubble from a ListView to the dialog's default button (drilled —
+                // the assumption that it did failed the check that pins this).
+                bool accepted = false;
+                list.KeyDown += (s, e) =>
+                {
+                    if (e.KeyCode != Key.Enter.KeyCode) return;
+                    accepted = true;
+                    e.Handled = true;
+                    ui.App.RequestStop(d);
+                };
+
+                list.SetFocus();
+                RunModal(ui, d);
+                ok = accepted || d.Result is 1;
+                chosen = list.SelectedItem ?? 0;
+                posIndex = posSel.Value ?? 0;
+            }
+            finally { d.Dispose(); }
             if (!ok || chosen < 0 || chosen >= set.Blocks.Count) return;
 
             _lastSnippet = chosen;
@@ -1243,25 +1272,31 @@ namespace Fux
                 Value = (ui.FindOptions & FindFlags.WholeWord) != 0 ? CheckState.Checked : CheckState.UnChecked,
             };
             var d = new Dialog { Title = "Find", Width = 62, Height = 14 };
-            d.Add(new Label { X = 1, Y = 0, Text = "Find what:" }, field,
-                  new Label { X = 1, Y = 3, Text = "Mode:" },
-                  new Label { X = 16, Y = 3, Text = "Look in:" },
-                  modeSel, filterSel, caseBox, wordBox);
-            d.AddButton(new Button { Text = "Cancel" }); // Result 0
-            d.AddButton(new Button { Text = "Find" });   // Result 1; last added = default (Enter)
-            field.SetFocus();
-            field.MoveEnd();
-            RunModal(ui, d);
-
-            bool ok = d.Result is 1;
-            var expr = field.Text;
+            bool ok = false;
+            string expr = null;
             var flags = FindFlags.Normal;
-            if (modeSel.Value == 1) flags |= FindFlags.Regex;
-            else if (modeSel.Value == 2) flags |= FindFlags.XPath;
-            if (caseBox.Value == CheckState.Checked) flags |= FindFlags.MatchCase;
-            if (wordBox.Value == CheckState.Checked) flags |= FindFlags.WholeWord;
-            var filter = (SearchFilter)(filterSel.Value ?? 0);
-            d.Dispose();
+            var filter = SearchFilter.Everything;
+            try
+            {
+                d.Add(new Label { X = 1, Y = 0, Text = "Find what:" }, field,
+                      new Label { X = 1, Y = 3, Text = "Mode:" },
+                      new Label { X = 16, Y = 3, Text = "Look in:" },
+                      modeSel, filterSel, caseBox, wordBox);
+                d.AddButton(new Button { Text = "Cancel" }); // Result 0
+                d.AddButton(new Button { Text = "Find" });   // Result 1; last added = default (Enter)
+                field.SetFocus();
+                field.MoveEnd();
+                RunModal(ui, d);
+
+                ok = d.Result is 1;
+                expr = field.Text;
+                if (modeSel.Value == 1) flags |= FindFlags.Regex;
+                else if (modeSel.Value == 2) flags |= FindFlags.XPath;
+                if (caseBox.Value == CheckState.Checked) flags |= FindFlags.MatchCase;
+                if (wordBox.Value == CheckState.Checked) flags |= FindFlags.WholeWord;
+                filter = (SearchFilter)(filterSel.Value ?? 0);
+            }
+            finally { d.Dispose(); }
             if (!ok) return;
 
             ui.FindExpr = expr;
@@ -1630,11 +1665,15 @@ namespace Fux
             if (!ConfirmDiscard(ui)) return;
 
             var d = new OpenDialog { Title = "Open", OpenMode = OpenMode.File, AllowsMultipleSelection = false };
-            d.HotKeySpecifier = NoHotKey; // paths carry underscores — see NoHotKey
-            if (_model.FileName != null) d.Path = _model.FileName;
-            RunModal(ui, d);
-            var picked = d.FilePaths.Count > 0 ? d.FilePaths[0] : null; // empty when cancelled
-            d.Dispose();
+            string picked = null;
+            try
+            {
+                d.HotKeySpecifier = NoHotKey; // paths carry underscores — see NoHotKey
+                if (_model.FileName != null) d.Path = _model.FileName;
+                RunModal(ui, d);
+                picked = d.FilePaths.Count > 0 ? d.FilePaths[0] : null; // empty when cancelled
+            }
+            finally { d.Dispose(); }
             if (string.IsNullOrWhiteSpace(picked)) return;
 
             var err = TryOpen(ui, picked);
@@ -1646,11 +1685,15 @@ namespace Fux
             if (ui == null || BusyEditing(ui)) return;
 
             var d = new SaveDialog { Title = "Save As" };
-            d.HotKeySpecifier = NoHotKey;
-            if (_model.FileName != null) d.Path = _model.FileName;
-            RunModal(ui, d);
-            var picked = d.FileName; // null when cancelled
-            d.Dispose();
+            string picked = null;
+            try
+            {
+                d.HotKeySpecifier = NoHotKey;
+                if (_model.FileName != null) d.Path = _model.FileName;
+                RunModal(ui, d);
+                picked = d.FileName; // null when cancelled
+            }
+            finally { d.Dispose(); }
             if (string.IsNullOrWhiteSpace(picked)) return;
 
             var err = TrySaveAs(ui, picked);
