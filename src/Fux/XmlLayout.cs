@@ -50,14 +50,43 @@ namespace Fux
             return !hasItems || hasWhitespace;
         }
 
-        /// <summary>Does this container hold text, making its whitespace content rather than layout?</summary>
+        /// <summary>
+        /// Does this container hold text as <em>content</em>, making its whitespace part of what
+        /// the reader sees rather than layout?
+        ///
+        /// Not simply "has a text child". A block-formatted container can hold one on a line of
+        /// its own — a CDATA section among indented elements is ordinary — and calling that
+        /// inline switched the whole container to inline handling: an insert then planned no
+        /// indentation while a delete still reclaimed some, so every insert-then-delete cycle
+        /// destroyed a sibling's line break and the document came back one node short (#1).
+        ///
+        /// The question is whether the text shares a line with anything else. Text that starts a
+        /// line is preceded by whitespace carrying a line break; text that is content — the
+        /// "Call me " of <c>&lt;p&gt;Call me &lt;i&gt;Ishmael&lt;/i&gt;&lt;/p&gt;</c> — is not,
+        /// because with PreserveWhitespace on there is no separate whitespace node in front of
+        /// it to find.
+        /// </summary>
         public static bool HasTextContent(XmlNode container)
         {
             for (XmlNode c = container.FirstChild; c != null; c = c.NextSibling)
-                if (c.NodeType == XmlNodeType.Text || c.NodeType == XmlNodeType.CDATA
-                    || c.NodeType == XmlNodeType.EntityReference)
-                    return true;
+            {
+                if (c.NodeType != XmlNodeType.Text && c.NodeType != XmlNodeType.CDATA
+                    && c.NodeType != XmlNodeType.EntityReference)
+                    continue;
+                if (!StartsItsOwnLine(c)) return true;
+            }
             return false;
+        }
+
+        /// <summary>
+        /// Whether this node begins a line: the whitespace directly in front of it carries a
+        /// line break. That is the same shape every other helper here relies on — an item and
+        /// the indentation that precedes it.
+        /// </summary>
+        private static bool StartsItsOwnLine(XmlNode n)
+        {
+            XmlNode ws = LeadingWhitespace(n);
+            return ws != null && ws.Value != null && ws.Value.IndexOf('\n') >= 0;
         }
 
         /// <summary>
@@ -79,7 +108,7 @@ namespace Fux
         }
 
         /// <summary>
-        /// The whitespace a child of <paramml name="container"/> should be preceded by, as a
+        /// The whitespace a child of <paramref name="container"/> should be preceded by, as a
         /// line break plus indent. An existing child's indentation is copied verbatim when there
         /// is one, so a document that indents four spaces keeps indenting four spaces regardless
         /// of what was sniffed from the file as a whole.

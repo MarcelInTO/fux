@@ -719,7 +719,8 @@ namespace Fux
                 // Tear the playground down and come out clean.
                 Check(Program.TryDelete(ui, fa) == null && Program.TryDelete(ui, fb) == null,
                     "playground deleted");
-                Check(rootD.ChildNodes.Count == kidsD, "the document is back to its original children");
+                Check(rootD.ChildNodes.Count == kidsD,
+                    $"insert/delete drill: the document is back to its original children (was {kidsD}, now {rootD.ChildNodes.Count})");
                 app.Keyboard.RaiseKeyDownEvent(Key.S.WithCtrl);
                 Check(!Program.Model.Dirty, "save clears dirty after the nudge drill");
             }
@@ -841,7 +842,8 @@ namespace Fux
                 ui.FindExpr = null;
                 Check(Program.TryDelete(ui, h1) == null && Program.TryDelete(ui, h2) == null,
                     "find playground deleted");
-                Check(rootF.ChildNodes.Count == kidsF, "the document is back to its original children");
+                Check(rootF.ChildNodes.Count == kidsF,
+                    $"find drill: the document is back to its original children (was {kidsF}, now {rootF.ChildNodes.Count})");
                 app.Keyboard.RaiseKeyDownEvent(Key.S.WithCtrl);
                 Check(!Program.Model.Dirty, "save clears dirty after the find drill");
             }
@@ -1442,6 +1444,72 @@ namespace Fux
                 // Back to the document every later section expects, clean.
                 Check(Program.TryOpen(ui, file) == null, "reveal drill: the real document reopens");
                 Check(!Program.Model.Dirty, "reveal drill: and reopens clean");
+            }
+
+            // --- 13e. Whitespace ownership: a container holding text or CDATA (#1). Insert and
+            // delete have to agree about who owns the whitespace in front of a node, or an
+            // insert-then-delete cycle returns a document one node short — silently, and in a
+            // region the user never edited.
+            //
+            // Two containers, because the two halves of the fix are independently sufficient for
+            // the reported document and would otherwise go unpinned: reverting either one alone
+            // still passed the original repro (measured). <fuxblock> is block-formatted despite
+            // its CDATA, so it must INDENT; <fuxinline> has text sharing a line, so it must not.
+            // The oracle is OuterXml, not a node count: it catches whitespace that changed value
+            // as well as whitespace that went missing.
+            {
+                var layoutPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "fux-drill-layout.xml");
+                System.IO.File.WriteAllText(layoutPath,
+                    "<fuxlayout>\n"
+                    + "  <fuxblock>\n    <a>1</a>\n    <b>2</b>\n    <![CDATA[data]]>\n  </fuxblock>\n"
+                    + "  <fuxinline>text <i>x</i>\n    <c/>\n  </fuxinline>\n"
+                    + "</fuxlayout>\n");
+
+                if (Check(Program.TryOpen(ui, layoutPath) == null, "layout drill: the document opens"))
+                {
+                    var layoutRoot = Program.Model.Document.DocumentElement;
+                    var block = (XmlElement)layoutRoot.SelectSingleNode("fuxblock");
+                    var inline = (XmlElement)layoutRoot.SelectSingleNode("fuxinline");
+                    if (Check(block != null && inline != null, "layout drill: found both containers"))
+                    {
+                        // The classification itself, named. This is the line that was wrong: any
+                        // text child at all made a container inline, CDATA on its own line
+                        // included.
+                        Check(XmlLayout.ShouldIndent(block),
+                            "a container holding CDATA on a line of its own is still laid out as a block");
+                        Check(!XmlLayout.ShouldIndent(inline),
+                            "a container whose text shares a line with an element stays inline");
+
+                        // Block: insert adds the node AND its indentation, delete takes both back.
+                        var blockBefore = block.OuterXml;
+                        int blockKids = block.ChildNodes.Count;
+                        Check(Program.TryInsert(ui, block, InsertKind.Element, InsertPos.Child, "fuxnew") == null,
+                            "layout drill: insert into the block container");
+                        Check(block.ChildNodes.Count == blockKids + 2,
+                            $"the insert brings its own indentation ({blockKids} -> {block.ChildNodes.Count}, want +2)");
+                        var blockNew = block.SelectSingleNode("fuxnew");
+                        Check(blockNew != null && XmlLayout.LeadingWhitespace(blockNew) != null,
+                            "...and the new node sits on a line of its own");
+                        Check(Program.TryDelete(ui, blockNew) == null, "layout drill: delete it again");
+                        Check(block.OuterXml == blockBefore,
+                            $"insert then delete leaves the block container byte for byte ({block.ChildNodes.Count} of {blockKids} children)");
+
+                        // Inline: insert adds only the node, and delete must take only the node.
+                        // Unconditional whitespace reclaiming took a sibling's line break here.
+                        var inlineBefore = inline.OuterXml;
+                        int inlineKids = inline.ChildNodes.Count;
+                        Check(Program.TryInsert(ui, inline, InsertKind.Element, InsertPos.Child, "fuxnew") == null,
+                            "layout drill: insert into the inline container");
+                        Check(inline.ChildNodes.Count == inlineKids + 1,
+                            $"the insert adds no indentation there ({inlineKids} -> {inline.ChildNodes.Count}, want +1)");
+                        var inlineNew = inline.SelectSingleNode("fuxnew");
+                        Check(Program.TryDelete(ui, inlineNew) == null, "layout drill: delete it again");
+                        Check(inline.OuterXml == inlineBefore,
+                            $"insert then delete leaves the inline container byte for byte ({inline.ChildNodes.Count} of {inlineKids} children)");
+                    }
+                }
+                Check(Program.TryOpen(ui, file) == null, "layout drill: the real document reopens");
+                Check(!Program.Model.Dirty, "layout drill: and reopens clean");
             }
 
             // --- 14. The About box carries the attribution the MIT notice requires.
