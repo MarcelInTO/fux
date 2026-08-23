@@ -20,7 +20,18 @@ Conventions, as the tracker actually uses them:
   it, and the cause cites `file:line`. Issues #1, #2 and #10 are the worked examples.
 - **Verify before filing, and label a theory as a theory.** A suspected cause goes in only
   when it is evidence-backed; otherwise say plainly that diagnosis needs instrumentation.
-  A guess written into an issue gets read later as a finding.
+  A guess written into an issue gets read later as a finding. **This applies to the proposed
+  fix as much as to the cause, and that is the half that keeps going wrong.** #21's mock-up
+  listed Cancel first "so it is the default"; MessageBox defaults to the *last* button, so
+  implementing the issue as written armed a reflexive Enter to delete — the very thing the
+  prompt existed to prevent. #26 reasoned that a release's output could not change, which held
+  for `0.3.0` and not for `0.2.0-rc.1`. Both read as findings and were assumptions about a
+  framework nobody had run. Write the mechanism as a theory unless you have executed it.
+- **An issue's evidence goes stale — re-check it before relying on it.** #1 cited
+  `src/Application/Samples/basket.xml` as a second reproducing document; that file went with
+  the WinForms tree months earlier, so half its evidence could not be reproduced from the repo.
+  Picking up an old issue starts with confirming its fixtures and `file:line` references still
+  exist.
 - One issue is one piece of work. Confirm the title and body with the user before creating
   it, unless they have said to file autonomously.
 
