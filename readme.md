@@ -1,7 +1,7 @@
 # fux
 
-A cross-platform terminal XML editor. Browse, edit and validate XML from a TUI —
-schema-aware, undoable, and byte-preserving on save — as a single self-contained
+A cross-platform terminal based XML editor. Browse, edit and validate XML from a TUI —
+schema-aware, and undoable. Runs on linux, windows, and macos  — as a single self-contained
 binary with no runtime to install.
 
 fux reuses the battle-tested document engine from
