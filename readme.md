@@ -154,26 +154,34 @@ control that has no place in a terminal.
 
 Structures you type often can be named once in a config file and inserted with `^B`
 (Edit ▸ Snippet…). The panel puts the position on one row and the whole list under
-it, in the order the file lists them, so you can order the file to suit the work:
+it, in the order the file lists them, so you can order the file to suit the work.
+Once there are enough of them to be worth grouping — several schemas' worth, say —
+put them in `<section>`s and the panel heads each group and indents what is under it:
 
 ```
 ┌──────────────┤Snippet at <block>├──────────────┐
 │ ◉ Below  ○ Above  ○ Child                      │
 │                                                │
-│ Paragraph                                      │
-│ Argument                                       │
-│ Footnote                                       │
+│ Blocks                                         │
+│   Paragraph                                    │
+│   Argument                                     │
+│   Footnote                                     │
+│ Illustrations                                  │
+│   Plate - own page                             │
+│   Headpiece                                    │
 │ …                                              │
 │                          ⟦ Cancel ⟧  ⟦► OK ◄⟧  │
 └────────────────────────────────────────────────┘
 ```
 
 The list has focus when the panel opens and `Enter` on it commits, so inserting is
-`^B`, arrow, `Enter` — no `Tab`, no button, no mouse. The list scrolls when the
-config is longer than the screen, and the panel reopens on the snippet and position
-you used last, which is what makes a run of twelve verse-lines bearable. Picking one
-inserts the element, its attributes and everything under it as a single undoable
-edit.
+`^B`, arrow, `Enter` — no `Tab`, no button, no mouse. Typing a letter jumps to the
+next entry starting with it. A heading is a label rather than a choice, so the
+selection steps over it and every one of those gestures still lands on something
+insertable. The list scrolls when the config is longer than the screen, and the panel
+reopens on the snippet and position you used last, which is what makes a run of
+twelve verse-lines bearable. Picking one inserts the element, its attributes and
+everything under it as a single undoable edit.
 
 The file is `~/.config/fux/snippets.xml` (`$XDG_CONFIG_HOME/fux/snippets.xml` if that
 is set; `%APPDATA%\fux\snippets.xml` on Windows):
@@ -183,12 +191,15 @@ is set; `%APPDATA%\fux\snippets.xml` on Windows):
   <snippet name="Footnote">
     <block kind="footnote"/>
   </snippet>
-  <snippet name="Sidebar">
-    <sidebar>
-      <title/>
-      <body/>
-    </sidebar>
-  </snippet>
+
+  <section name="Illustrations">
+    <snippet name="Plate - own page">
+      <illustration role="plate" print-placement="own-page" src="" alt=""/>
+    </snippet>
+    <snippet name="Headpiece">
+      <illustration role="headpiece" src="" alt=""/>
+    </snippet>
+  </section>
 </snippets>
 ```
 
@@ -196,9 +207,17 @@ is set; `%APPDATA%\fux\snippets.xml` on Windows):
   **exactly one element**, which may nest as deeply as you like and carry attributes
   and text. The indentation around it in the config is ignored; a block is re-indented
   to wherever it lands.
-- Blocks appear in the order the file lists them.
+- Blocks appear in the order the file lists them. A `<section>` groups them and
+  nothing more — it does not sort, so ordering the file still orders the panel.
+- A `<section>` needs a `name`, and holds `<snippet>`s. Sections do not nest, and a
+  snippet may still be written outside every section: it then appears where the file
+  puts it, unindented and under no heading. A config with no sections at all draws
+  exactly the list it always did.
+- Getting a section wrong never costs the snippets inside it. An unnamed one leaves
+  them ungrouped, a nested one folds them into its parent, and either way it is
+  reported alongside the other skips.
 - The file is re-read every time the dialog opens, so you can edit it in fux and see
-  the change on the next `^N`.
+  the change on the next `^B`.
 - A prefix a block uses must be declared in the config, on `<snippets>` or on the
   block itself; the declaration travels with the block.
 - A snippet that cannot load is skipped and reported under the group, and the rest of

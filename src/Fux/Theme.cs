@@ -26,6 +26,7 @@ namespace Fux
         private static readonly Color Red    = new Color("#dc322f");
         private static readonly Color Blue   = new Color("#268bd2");
         private static readonly Color Cyan   = new Color("#2aa198");
+        private static readonly Color Orange = new Color("#cb4b16");
 
         // The sixteen-tone monotone ramp, named for dark mode.
         private static readonly Color S03 = new Color("#002b36");
@@ -56,6 +57,11 @@ namespace Fux
         // Per-severity row attributes for the error list.
         public static Attribute ErrorRow { get; private set; }      // Error -> red
         public static Attribute WarningRow { get; private set; }    // yellow (Error-red would hide the distinction)
+
+        // Section headings in the snippet panel. vim's Title group, which solarized.vim maps
+        // to orange — and orange is the one accent the tree does not already spend on a node
+        // kind, so a heading cannot be misread as content.
+        public static Attribute HeadingRow { get; private set; }    // Title -> orange
 
         static Theme() => Load(dark: true);
 
@@ -88,7 +94,7 @@ namespace Fux
                 Normal    = A(Base1,  Base02),
                 Focus     = A(Base02, Base2),
                 HotNormal = A(Yellow, Base02),
-                HotFocus  = A(new Color("#cb4b16"), Base2), // orange: yellow is unreadable on base2
+                HotFocus  = A(Orange, Base2), // orange: yellow is unreadable on base2
                 Disabled  = A(Base00, Base02),
             };
             Error = new Scheme
@@ -119,6 +125,7 @@ namespace Fux
 
             ErrorRow   = A(Red,    Base03);
             WarningRow = A(Yellow, Base03);
+            HeadingRow = A(Orange, Base03);
         }
 
         // A row scheme: the node-kind accent when unselected, the Visual bar when selected.

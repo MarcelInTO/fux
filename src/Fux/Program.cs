@@ -1119,8 +1119,11 @@ namespace Fux
                 Id = SnippetPosId,
             };
 
+            // Section headings and indented snippets, or — for a config that uses no sections
+            // — exactly the flat list this dialog has always shown. See Snippets.Rows.
+            var rows = Snippets.Rows(set.Blocks);
             var names = new ObservableCollection<string>();
-            foreach (var b in set.Blocks) names.Add(b.Name);
+            foreach (var r in rows) names.Add(r.Text);
 
             var list = new ListView
             {
@@ -1129,13 +1132,55 @@ namespace Fux
             };
             list.SetSource(names);
             list.HotKeySpecifier = NoHotKey; // the rows are the user's own text
-            list.SelectedItem = _lastSnippet < names.Count ? _lastSnippet : 0;
+
+            // A heading is a label, not a choice: the selection steps over it rather than
+            // resting on it, so ^B-arrow-Enter still lands on a snippet every time and OK can
+            // never commit to a row that inserts nothing.
+            //
+            // One hook rather than arrow-key bindings, so arrows, Home/End, PageUp/PageDown,
+            // the mouse and type-ahead are all covered by the same rule — and so --drill can
+            // exercise it, since injected keys reach app-scope bindings only and the drill has
+            // to move the selection by setting SelectedItem.
+            //
+            // ValueChanged and not ValueChanging, which is where this started: 2.4.17's
+            // ValueChangingEventArgs exposes a writable NewValue that reads exactly like a
+            // redirect, and ListView ignores it — the selection lands on the heading anyway.
+            // (Its Handled does work, but cancelling only pins the selection in place, so
+            // Down onto a heading would do nothing at all.) Re-setting from ValueChanged is
+            // what actually moves it, verified through MoveDown rather than assumed; the guard
+            // is because that second set comes straight back through here.
+            bool skipping = false;
+            list.ValueChanged += (s, e) =>
+            {
+                if (skipping) return;
+                var to = SkipHeadings(rows, e.OldValue, e.NewValue);
+                if (to == e.NewValue) return;
+                skipping = true;
+                try { list.SelectedItem = to; }
+                finally { skipping = false; }
+            };
+
+            // Headings in vim's Title colour, so a row at column 0 reads as a heading rather
+            // than as an unindented snippet. The selection bar owns a focused row's colours.
+            list.RowRender += (s, e) =>
+            {
+                if (e.Row < 0 || e.Row >= rows.Count || !rows[e.Row].IsHeading) return;
+                if (list.HasFocus && list.SelectedItem == e.Row) return;
+                e.RowAttribute = Theme.HeadingRow;
+            };
+
+            // Typing a letter jumps to the next row starting with it, and the indent must not
+            // break that: the default matcher compares against the row text, which now begins
+            // with two spaces for anything inside a section. See SnippetMatcher.
+            if (list.KeystrokeNavigator != null) list.KeystrokeNavigator.Matcher = new SnippetMatcher();
+
+            list.SelectedItem = RowForBlock(rows, _lastSnippet);
 
             // Height from the screen, not from arithmetic about how much room a Dialog has:
             // guessing that is exactly how the first attempt at this ended up showing two
             // snippets out of nineteen. Ask for what the terminal has and let the list scroll.
             int screenH = ui.Top.Viewport.Height;
-            int wanted = names.Count + 6;                 // position row, borders, buttons
+            int wanted = names.Count + SnippetPanelChrome;
             int height = Math.Max(10, Math.Min(wanted, Math.Max(10, screenH - 4)));
             int width = 0;
             foreach (var name in names) width = Math.Max(width, name.Length);
@@ -1171,7 +1216,11 @@ namespace Fux
                 list.SetFocus();
                 RunModal(ui, d);
                 ok = accepted || d.Result is 1;
-                chosen = list.SelectedItem ?? 0;
+                // Back from a row to the block it stands for. The selection cannot be on a
+                // heading (ValueChanging above), but -1 is still handled rather than trusted:
+                // a heading commits nothing, which is the safe reading either way.
+                int row = list.SelectedItem ?? -1;
+                chosen = row >= 0 && row < rows.Count ? rows[row].BlockIndex : -1;
                 posIndex = posSel.Value ?? 0;
             }
             finally { d.Dispose(); }
@@ -1184,6 +1233,51 @@ namespace Fux
             if (err != null)
                 ModalQuery(ui, "Insert failed", err, "OK");
         }
+
+        // Where the selection should land, given where it is and where it was asked to go.
+        // Search runs in the direction of travel first, so Down off a heading continues down;
+        // the other direction is the fallback, which is what a heading at either end needs.
+        // A row that is already a snippet is returned untouched.
+        internal static int? SkipHeadings(System.Collections.Generic.IReadOnlyList<SnippetRow> rows, int? from, int? to)
+        {
+            if (rows == null || rows.Count == 0) return to;
+            int want = to ?? 0;
+            if (want < 0 || want >= rows.Count) return to;
+            if (!rows[want].IsHeading) return to;
+
+            int step = want >= (from ?? 0) ? 1 : -1;
+            for (int i = want; i >= 0 && i < rows.Count; i += step)
+                if (!rows[i].IsHeading) return i;
+            for (int i = want; i >= 0 && i < rows.Count; i -= step)
+                if (!rows[i].IsHeading) return i;
+            return to; // headings all the way down: cannot happen, the dialog needs a block
+        }
+
+        // The row showing a given block, or the first selectable row when it has gone — the
+        // config is re-read on every open, so the block the panel reopens on may have been
+        // renamed, moved into a section, or deleted since it was last used.
+        internal static int RowForBlock(System.Collections.Generic.IReadOnlyList<SnippetRow> rows, int blockIndex)
+        {
+            for (int i = 0; i < rows.Count; i++)
+                if (rows[i].BlockIndex == blockIndex) return i;
+            for (int i = 0; i < rows.Count; i++)
+                if (!rows[i].IsHeading) return i;
+            return 0;
+        }
+
+        // Rows the snippet panel spends on everything that is not a list row: its border, the
+        // position selector and the blank under it, the button row, and the two Dim.Fill(2)
+        // holds back for it.
+        //
+        // Measured off a live panel rather than added up from the layout, because adding it up
+        // is what got this wrong. It used to reserve 6, which is four short — a long config
+        // never noticed, since the height clamps to the screen and the list scrolls, but a
+        // SHORT one asked for exactly six rows too few and got a two-row list inside a
+        // twelve-row dialog. Sections make that the common case: they are for configs long
+        // enough to need grouping, and a group is one more row that the panel has to fit.
+        // §14b pins the number, so a framework change that alters the chrome fails there
+        // instead of quietly shrinking the list again.
+        internal const int SnippetPanelChrome = 10;
 
         // Push a named-block insert through the undo stack. Separate from TryInsert because a
         // block carries its own name, kind and attributes — there is nothing to type. Returns
@@ -2166,6 +2260,30 @@ namespace Fux
     }
 
     // Minimal service container: the engine only asks the site for the Settings service.
+    /// <summary>
+    /// Type-ahead for the snippet panel: match on the row's text with its indent ignored.
+    /// </summary>
+    /// <remarks>
+    /// Terminal.Gui's default matcher compares the search string against the row exactly as
+    /// drawn, and a sectioned snippet is drawn two spaces in — so typing "P" for "Paragraph"
+    /// would find nothing at all once sections were introduced. That jump is not documented
+    /// anywhere, which is precisely why it was worth checking for before breaking it: typing a
+    /// letter does move the selection today, and on a config long enough to need sections it is
+    /// the fastest way through the list.
+    ///
+    /// A heading matches too, and that is deliberate — typing "I" for "Illustrations" lands on
+    /// the first snippet under it, because the panel's ValueChanging hook moves off headings.
+    /// </remarks>
+    internal sealed class SnippetMatcher : ICollectionNavigatorMatcher
+    {
+        public bool IsCompatibleKey(Key key)
+            => key != null && key.IsValid && !key.IsAlt && !key.IsCtrl;
+
+        public bool IsMatch(string search, object value)
+            => value?.ToString().TrimStart()
+                   .StartsWith(search, StringComparison.CurrentCultureIgnoreCase) ?? false;
+    }
+
     internal sealed class EngineSite : IServiceProvider
     {
         private readonly Settings _settings;
