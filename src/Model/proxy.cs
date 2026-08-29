@@ -8,6 +8,7 @@ using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Xml;
 using System.Net.Http;
+using System.Threading;
 
 
 namespace XmlNotepad
@@ -21,6 +22,48 @@ namespace XmlNotepad
         {
             _ps = site.GetService(typeof(WebProxyService)) as WebProxyService;
             Proxy = HttpWebRequest.DefaultWebProxy;
+        }
+
+        // One client for the process. A new HttpClient per fetch leaks its socket pool for the
+        // duration of TIME_WAIT, and the old code disposed it while still holding the response
+        // stream it had just returned. The timeout lives on a per-request token instead of on
+        // the client, because HttpClient.Timeout cannot be changed once a request has gone out
+        // and Timeout below is deliberately settable.
+        private static readonly HttpClient _client =
+            new HttpClient { Timeout = System.Threading.Timeout.InfiniteTimeSpan };
+
+        /// <summary>
+        /// How long a single schema fetch may take before it is abandoned.
+        /// </summary>
+        /// <remarks>
+        /// XmlNotepad used 60 seconds. Against a host that swallows packets rather than
+        /// refusing — VPN down, captive portal, corporate firewall — that is not "the document
+        /// goes unvalidated", it is a frozen editor: a validation pass resolves each hint twice
+        /// (once by URI in LoadXsiSchemas, again by namespace in LoadSchemasForNamespace), so
+        /// `--validate` against a black-holed host measured 120 seconds, and validation runs
+        /// after every command (#35). Single-digit seconds is the whole budget a person waiting
+        /// at a keyboard has. Settable so a batch caller with a slow link can raise it —
+        /// `fux --schema-timeout=N`.
+        /// </remarks>
+        public static TimeSpan Timeout { get; set; } = TimeSpan.FromSeconds(5);
+
+        /// <summary>
+        /// Set on a thread that must never block on the network, and read only here.
+        /// </summary>
+        /// <remarks>
+        /// The UI thread sets it for the life of the process: a fetch on it is a freeze no
+        /// matter how short the timeout, so the interactive front end resolves remote schemas
+        /// on a background thread instead and lets the UI thread see only what is already
+        /// cached (see Fux.Schemas). Thread-scoped rather than a flag on the resolver because
+        /// the resolver instance is shared between the two threads — the property answers
+        /// "may *I* wait here", which is the question each caller actually has.
+        /// The headless paths (--validate, --dump) never set it and stay fully synchronous.
+        /// </remarks>
+        [ThreadStatic] private static bool _offlineThread;
+        public static bool OfflineThread
+        {
+            get { return _offlineThread; }
+            set { _offlineThread = value; }
         }
 
         public override object GetEntity(Uri absoluteUri, string role, Type ofObjectToReturn)
@@ -61,18 +104,85 @@ namespace XmlNotepad
         Stream GetResponse(Uri uri)
         {
             Debug.WriteLine($"Loading Uri {uri}");
-            using (var client = new HttpClient())
+            if (OfflineThread)
             {
-                client.Timeout = TimeSpan.FromSeconds(60);
-                var result = client.GetAsync(uri).Result;
-                result.EnsureSuccessStatusCode();
-                return result.Content.ReadAsStreamAsync().Result;
+                // Nothing has been learned about this URL — the caller simply may not wait
+                // here. Distinct from a failure, so callers can tell "not yet" from "no".
+                throw new SchemaOfflineException(uri);
+            }
+            using (var cts = new CancellationTokenSource(Timeout))
+            {
+                HttpResponseMessage result;
+                try
+                {
+                    result = _client.GetAsync(uri, cts.Token).GetAwaiter().GetResult();
+                }
+                catch (OperationCanceledException) when (cts.IsCancellationRequested)
+                {
+                    // The framework's own text for this is "A task was canceled", which tells
+                    // the person reading the error pane nothing at all. Say what happened.
+                    throw new TimeoutException($"Timed out after {Timeout.TotalSeconds:0.#}s");
+                }
+                using (result)
+                {
+                    result.EnsureSuccessStatusCode();
+                    // Buffered, not handed out live: the response has to be disposed, and the
+                    // previous code returned a stream owned by an HttpClient it had already
+                    // disposed on the way out of the using block. A schema is small.
+                    return new MemoryStream(result.Content.ReadAsByteArrayAsync().GetAwaiter().GetResult());
+                }
             }
         }
 
         IWebProxy GetProxy()
         {
             return HttpWebRequest.DefaultWebProxy;
+        }
+    }
+
+    /// <summary>
+    /// A remote schema fetch that was declined rather than attempted, because the calling
+    /// thread may not block on the network (see <see cref="XmlProxyResolver.OfflineThread"/>).
+    /// </summary>
+    /// <remarks>
+    /// Deliberately not a failure: nothing has been learned about the URL, so it must not be
+    /// remembered as unreachable and must not be reported to the user as a broken schema. The
+    /// answer is "not yet" — a background fetch is what settles it.
+    /// </remarks>
+    public class SchemaOfflineException : Exception
+    {
+        public SchemaOfflineException(Uri uri)
+            : base($"Schema not fetched yet: {uri}")
+        {
+            this.Uri = uri;
+        }
+
+        public Uri Uri { get; }
+
+        /// <summary>
+        /// Whether <paramref name="e"/> is, or wraps, a declined fetch.
+        /// </summary>
+        /// <remarks>
+        /// The chain walk is the point. XmlReader.Create resolves the URI from inside its own
+        /// construction, so what comes back out is whatever that path chose to wrap the
+        /// resolver's exception in — testing the outermost type would silently start treating
+        /// "not fetched yet" as "schema is broken", which is exactly the wrong answer to
+        /// remember for the session and to put in front of the user.
+        /// </remarks>
+        public static bool IsIn(Exception e)
+        {
+            for (; e != null; e = e.InnerException)
+            {
+                if (e is SchemaOfflineException) return true;
+                if (e is AggregateException agg)
+                {
+                    foreach (var inner in agg.InnerExceptions)
+                    {
+                        if (IsIn(inner)) return true;
+                    }
+                }
+            }
+            return false;
         }
     }
 

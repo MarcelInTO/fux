@@ -57,7 +57,7 @@ pass `RID=...`. `make help` lists everything.
 fux document.xml           # open the editor
 fux --no-backup doc.xml    # edit without keeping backups
 fux --dump document.xml    # headless structure dump
-fux --validate doc.xml     # headless XSD validation (exit 1 if there are errors)
+fux --validate doc.xml     # headless XSD validation (1 = errors, 3 = no schema)
 fux --help                 # usage summary
 fux --version              # version only
 ```
@@ -76,6 +76,28 @@ delete; `--no-backup` turns the whole thing off.
 XML Notepad's conversion conventions. An import never overwrites its own source:
 saving writes XML, so `fux data.csv` will not silently turn `data.csv` into an XML
 file.
+
+## Schemas
+
+fux validates against whatever the document's `xsi:schemaLocation` and
+`xsi:noNamespaceSchemaLocation` hints point at — a URL as readily as a file sitting
+next to the document. A schema published once on the web and referenced by every
+document beats a copy beside each file, so remote hints are meant to be used.
+
+Being briefly unable to reach one is then routine rather than exotic, and fux is built
+for that. Remote schemas are fetched on a background thread, never on the one drawing
+the screen, so a host that swallows packets — VPN down, captive portal, firewall — does
+not freeze the editor; a fetch that fails is remembered for the session instead of
+being retried after every keystroke; and one fetch is capped at five seconds, or
+whatever `--schema-timeout=N` says.
+
+When a schema cannot be fetched, or turns out not to be a schema, fux says so instead
+of reporting a document nothing has checked as clean. On open you get a dialog —
+**Retry**, **Continue**, or **Quit**, with Quit last so that a reflexive Enter cannot
+leave you editing unvalidated — and for the rest of the session the validation pane
+reads `Not validated: 1 schema unavailable` rather than `0 errors`. Headless,
+`fux --validate` exits **3** for the same condition, so a CI job cannot mistake "the
+schema host is down" for "the document is fine".
 
 ## Keys
 

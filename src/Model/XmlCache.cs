@@ -108,6 +108,19 @@ namespace XmlNotepad
             _checker.Validate(this);
         }
 
+        /// <summary>
+        /// The schema hints the last <see cref="ValidateModel"/> pass could not load.
+        /// </summary>
+        /// <remarks>
+        /// Non-empty means the document was not fully checked, whatever the error count says.
+        /// The two are independent answers and the caller needs both: a document with no
+        /// errors and an unloaded schema has not passed, it has not been examined (#36).
+        /// </remarks>
+        public IList<SchemaLoadFailure> SchemaFailures
+        {
+            get { return _checker == null ? new List<SchemaLoadFailure>() : _checker.SchemaFailures; }
+        }
+
 
         public XmlDocument Document
         {
