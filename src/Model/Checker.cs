@@ -12,6 +12,54 @@ namespace XmlNotepad
 {
     public enum Severity { None, Hint, Warning, Error }
 
+    /// <summary>
+    /// One <c>xsi:schemaLocation</c> / <c>xsi:noNamespaceSchemaLocation</c> entry, as written.
+    /// </summary>
+    /// <remarks>
+    /// Enumerated separately from loading them so that a caller who wants to resolve the
+    /// document's schemas somewhere other than inside a validation pass — off the UI thread,
+    /// say — reads the hints the same way <see cref="Checker"/> does rather than reimplementing
+    /// the parse and drifting from it.
+    /// </remarks>
+    public sealed class SchemaHint
+    {
+        /// <summary>The xsi:* attribute the hint was written on; the error's position.</summary>
+        public XmlAttribute Context;
+        /// <summary>Target namespace, or "" for noNamespaceSchemaLocation.</summary>
+        public string Namespace;
+        /// <summary>The location exactly as written — relative path or absolute URL.</summary>
+        public string Location;
+    }
+
+    /// <summary>
+    /// A schema hint the document declares that did not produce a usable schema.
+    /// </summary>
+    /// <remarks>
+    /// The reason this is a record and not just the warning text: "nothing validated this
+    /// document" and "this document is valid" have to be distinguishable by the caller, and a
+    /// warning in a list of warnings is not (#36). Collected per validation pass, deduplicated
+    /// by resolved URI — LoadSchemas reaches the same hint twice, once by URI and once by
+    /// namespace.
+    /// </remarks>
+    public sealed class SchemaLoadFailure
+    {
+        /// <summary>The hint as written in the document.</summary>
+        public string Location;
+        /// <summary>What it resolved to, or the location itself when it would not resolve.</summary>
+        public string ResolvedUri;
+        /// <summary>Why it failed, in the terms the user should see.</summary>
+        public string Message;
+        /// <summary>Where the hint is, for the error pane's jump-to-node.</summary>
+        public int Line, Col;
+
+        /// <summary>
+        /// The fetch was declined, not attempted: this thread may not block on the network
+        /// and a background one is resolving it. Nothing is yet known about the URL, so this
+        /// is neither a diagnostic nor grounds for telling the user the schema is broken.
+        /// </summary>
+        public bool Pending;
+    }
+
     public abstract class ErrorHandler
     {
         public abstract void HandleError(Severity sev, string reason, string filename, int line, int col, object data);
@@ -33,6 +81,7 @@ namespace XmlNotepad
         private XmlElement _node;
         private Hashtable _parents;
         private IntellisensePosition _position;
+        private readonly List<SchemaLoadFailure> _schemaFailures = new List<SchemaLoadFailure>();
 
         internal const int SurHighStart = 0xd800;
         internal const int SurHighEnd = 0xdbff;
@@ -56,6 +105,19 @@ namespace XmlNotepad
         public Checker(ErrorHandler eh)
         {
             this._eh = eh;
+        }
+
+        /// <summary>
+        /// The document's schema hints that did not load, from the last validation pass.
+        /// </summary>
+        /// <remarks>
+        /// Empty is the only thing that means "everything the document asked for was
+        /// checked". A caller reporting "0 errors" without consulting this is reporting that
+        /// an unvalidated document passed.
+        /// </remarks>
+        public IList<SchemaLoadFailure> SchemaFailures
+        {
+            get { return this._schemaFailures; }
         }
 
         public XmlSchemaAttribute[] GetExpectedAttributes()
@@ -246,59 +308,78 @@ namespace XmlNotepad
             return result;
         }
 
-        bool LoadXsiSchemas(XmlDocument doc, XmlSchemaSet set, SchemaResolver resolver)
+        /// <summary>
+        /// The schema hints on a document's root element, in document order.
+        /// </summary>
+        /// <remarks>
+        /// Public and static so that resolving a document's schemas outside a validation pass
+        /// reads the hints through this, not through a second copy of the parse. Pair it with
+        /// <see cref="ResolveSchemaLocation"/> to get the URI a load would actually go to.
+        /// </remarks>
+        public static IEnumerable<SchemaHint> GetSchemaHints(XmlDocument doc)
         {
-            if (doc.DocumentElement == null) return false;
-            bool result = false;
+            if (doc == null || doc.DocumentElement == null) yield break;
             foreach (XmlAttribute a in doc.DocumentElement.Attributes)
             {
-                if (a.NamespaceURI == "http://www.w3.org/2001/XMLSchema-instance")
+                if (a.NamespaceURI != "http://www.w3.org/2001/XMLSchema-instance") continue;
+                if (a.LocalName == "noNamespaceSchemaLocation")
                 {
-                    if (a.LocalName == "noNamespaceSchemaLocation")
+                    if (!string.IsNullOrEmpty(a.Value))
                     {
-                        string path = a.Value;
-                        if (!string.IsNullOrEmpty(path))
-                        {
-                            result = LoadSchema(set, resolver, a, "", a.Value);
-                        }
-                    }
-                    else if (a.LocalName == "schemaLocation")
-                    {
-                        string[] words = a.Value.Split(new char[] { ' ', '\t', '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
-                        for (int i = 0, n = words.Length; i + 1 < n; i++)
-                        {
-                            string nsuri = words[i];
-                            string location = words[++i];
-                            result |= LoadSchema(set, resolver, a, nsuri, location);
-                        }
+                        yield return new SchemaHint { Context = a, Namespace = "", Location = a.Value };
                     }
                 }
+                else if (a.LocalName == "schemaLocation")
+                {
+                    // Whitespace-separated namespace/location pairs. An odd trailing word is
+                    // a namespace with no location and is skipped, as `i + 1 < n` says.
+                    string[] words = a.Value.Split(new char[] { ' ', '\t', '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+                    for (int i = 0, n = words.Length; i + 1 < n; i++)
+                    {
+                        string nsuri = words[i];
+                        string location = words[++i];
+                        yield return new SchemaHint { Context = a, Namespace = nsuri, Location = location };
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// Where a hint's location resolves to: against the context node's own base URI if it
+        /// has one, else against <paramref name="fallbackBase"/> (the document's directory).
+        /// </summary>
+        public static Uri ResolveSchemaLocation(XmlNode ctx, Uri fallbackBase, string location)
+        {
+            Uri baseUri = fallbackBase;
+            if (ctx != null && !string.IsNullOrEmpty(ctx.BaseURI))
+            {
+                baseUri = new Uri(ctx.BaseURI);
+            }
+            return baseUri != null
+                ? new Uri(baseUri, location)
+                : new Uri(location, UriKind.RelativeOrAbsolute);
+        }
+
+        bool LoadXsiSchemas(XmlDocument doc, XmlSchemaSet set, SchemaResolver resolver)
+        {
+            bool result = false;
+            foreach (SchemaHint hint in GetSchemaHints(doc))
+            {
+                result |= LoadSchema(set, resolver, hint.Context, hint.Namespace, hint.Location);
             }
             return result;
         }
 
         bool LoadSchema(XmlSchemaSet set, SchemaResolver resolver, XmlNode ctx, string nsuri, string filename)
         {
+            Uri resolved = null;
             try
             {
                 if (set.Contains(nsuri))
                 {
                     return false;
                 }
-                Uri baseUri = this._baseUri;
-                if (!string.IsNullOrEmpty(ctx.BaseURI))
-                {
-                    baseUri = new Uri(ctx.BaseURI);
-                }
-                Uri resolved;
-                if (baseUri != null)
-                {
-                    resolved = new Uri(baseUri, filename);
-                }
-                else
-                {
-                    resolved = new Uri(filename, UriKind.RelativeOrAbsolute);
-                }
+                resolved = ResolveSchemaLocation(ctx, this._baseUri, filename);
                 XmlSchema s = null;
                 SchemaCache sc = this._cache.SchemaCache;
                 var ce = sc.FindSchemaByUri(resolved.AbsoluteUri);
@@ -320,11 +401,71 @@ namespace XmlNotepad
                     return true;
                 }
             }
+            catch (Exception e) when (SchemaOfflineException.IsIn(e))
+            {
+                // Not a failure: this thread may not block on the network and something else
+                // is fetching it. Recorded so the caller can say "loading" rather than "0
+                // errors", but deliberately not reported as a diagnostic — the fetch has not
+                // happened yet, so there is nothing to tell the user about the schema.
+                RecordSchemaFailure(ctx, filename, resolved, null, true);
+            }
             catch (Exception e)
             {
-                ReportError(Severity.Warning, string.Format(Strings.SchemaLoadError, filename, e.Message), ctx);
+                string reason = Unwrap(e).Message;
+                ReportError(Severity.Warning, string.Format(Strings.SchemaLoadError, filename, reason), ctx);
+                RecordSchemaFailure(ctx, filename, resolved, reason, false);
             }
             return false;
+        }
+
+        // A hint that produced no schema. Kept alongside the warning rather than instead of it:
+        // the warning is what the user reads, this is what the caller can act on — a count of
+        // warnings cannot answer "was this document actually checked against anything?".
+        //
+        // Deduplicated by resolved URI because LoadSchemas reaches the same hint twice, once
+        // through LoadXsiSchemas and once through LoadSchemasForNamespace; a pending record is
+        // upgraded to a real failure if the second attempt gets a real answer.
+        void RecordSchemaFailure(XmlNode ctx, string location, Uri resolved, string message, bool pending)
+        {
+            string uri = resolved == null ? location : resolved.AbsoluteUri;
+            foreach (var existing in this._schemaFailures)
+            {
+                if (existing.ResolvedUri == uri)
+                {
+                    if (existing.Pending && !pending)
+                    {
+                        existing.Pending = false;
+                        existing.Message = message;
+                    }
+                    return;
+                }
+            }
+            int line = 0, col = 0;
+            LineInfo li = _cache == null ? null : _cache.GetLineInfo(ctx);
+            if (li != null)
+            {
+                line = li.LineNumber;
+                col = li.LinePosition;
+            }
+            this._schemaFailures.Add(new SchemaLoadFailure
+            {
+                Location = location,
+                ResolvedUri = uri,
+                Message = message,
+                Pending = pending,
+                Line = line,
+                Col = col,
+            });
+        }
+
+        // What HttpClient actually said, not AggregateException's "One or more errors occurred."
+        static Exception Unwrap(Exception e)
+        {
+            while (e is AggregateException agg && agg.InnerExceptions.Count == 1)
+            {
+                e = agg.InnerExceptions[0];
+            }
+            return e;
         }
 
         void ReportError(Severity sev, string msg, XmlNode ctx)

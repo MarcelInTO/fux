@@ -820,6 +820,19 @@ namespace XmlNotepad
         SchemaCache cache;
         ValidationEventHandler handler;
 
+        // Schemas that could not be loaded, by absolute URI, with the reason. The positive
+        // cache above only ever remembers successes, so before this every failed hint was
+        // re-fetched from scratch: twice within one validation pass (LoadXsiSchemas resolves
+        // it by URI, LoadSchemasForNamespace again by namespace), and then again after every
+        // command, since validation runs after every edit, undo and redo. Against an
+        // unroutable host that measured 120 seconds per `--validate` and a freeze per
+        // keystroke in the editor (#35).
+        //
+        // A failure is remembered for the session and no longer, because the common causes
+        // are transient — wifi not up yet, VPN not connected, captive portal not signed into.
+        // ClearFailures is what a Retry is: forget, and let the next resolve go to the wire.
+        private readonly Dictionary<string, string> _failures = new Dictionary<string, string>();
+
         public SchemaResolver(IServiceProvider site, SchemaCache cache) : base(site)
         {
             this.cache = cache;
@@ -831,42 +844,112 @@ namespace XmlNotepad
             set { handler = value; }
         }
 
+        /// <summary>
+        /// Forget every remembered failure, so the next resolve attempts the fetch again.
+        /// </summary>
+        public void ClearFailures()
+        {
+            lock (_failures) { _failures.Clear(); }
+        }
+
+        /// <summary>
+        /// Whether a load of this URI has already been tried and failed this session.
+        /// </summary>
+        public bool HasFailed(Uri uri)
+        {
+            lock (_failures) { return _failures.ContainsKey(uri.AbsoluteUri); }
+        }
+
         public override object GetEntity(Uri absoluteUri, string role, Type ofObjectToReturn)
         {
             CacheEntry ce = cache.FindSchemaByUri(absoluteUri);
             if (ce != null && ce.HasUpToDateSchema) return ce.Schema;
 
+            // Already known bad: fail now, at the speed of a dictionary lookup, with the
+            // reason the real attempt gave. Callers cannot tell this from the first attempt,
+            // which is the point — every one of them reports the same diagnostic.
+            string remembered;
+            lock (_failures)
+            {
+                _failures.TryGetValue(absoluteUri.AbsoluteUri, out remembered);
+            }
+            if (remembered != null) throw new SchemaLoadException(absoluteUri, remembered);
+
             XmlSchema s = null;
 
             if (ofObjectToReturn == typeof(XmlSchema))
             {
-                using (XmlReader r = XmlHelpers.ReadXml(absoluteUri.AbsoluteUri, this, handler))
+                try
                 {
-                    if (r != null)
+                    using (XmlReader r = XmlHelpers.ReadXml(absoluteUri.AbsoluteUri, this, handler))
                     {
-                        s = XmlSchema.Read(r, handler);
-                        if (s != null)
+                        if (r != null)
                         {
-                            s.SourceUri = absoluteUri.AbsoluteUri;
-                            if (ce != null)
+                            s = XmlSchema.Read(r, handler);
+                            if (s != null)
                             {
-                                ce.Schema = s;
+                                s.SourceUri = absoluteUri.AbsoluteUri;
+                                if (ce != null)
+                                {
+                                    ce.Schema = s;
+                                }
+                                else
+                                {
+                                    cache.Add(s);
+                                }
+                                return s;
                             }
-                            else
-                            {
-                                cache.Add(s);
-                            }
-                            return s;
                         }
                     }
+                    // Read returned null without throwing. This is the quiet half of "cannot
+                    // be fetched or is invalid": something that is not a schema arrived where
+                    // one was asked for — a captive portal's sign-in page, an HTML 404 body, a
+                    // repo browser's UI. It parses as markup and simply is not an XSD. Left as
+                    // a null return it came out of validation as "no schema, no errors, all is
+                    // well", which is the wrong direction to fail in (#36).
+                    throw new SchemaLoadException(absoluteUri, "not a valid XML schema");
+                }
+                catch (Exception e)
+                {
+                    // A declined fetch is not an answer about the URL — the caller was simply
+                    // not allowed to wait. Remembering it would make a deferred fetch look
+                    // like a broken schema for the rest of the session.
+                    if (!SchemaOfflineException.IsIn(e)) Remember(absoluteUri, Unwrap(e));
+                    throw;
                 }
             }
-            else
-            {
-                return base.GetEntity(absoluteUri, role, typeof(Stream)) as Stream;
-            }
 
-            return null;
+            return base.GetEntity(absoluteUri, role, typeof(Stream)) as Stream;
         }
+
+        private void Remember(Uri uri, string reason)
+        {
+            lock (_failures) { _failures[uri.AbsoluteUri] = reason; }
+        }
+
+        // AggregateException wraps whatever HttpClient actually said, so the message a user
+        // saw began "One or more errors occurred." and buried the DNS or status text behind it.
+        private static string Unwrap(Exception e)
+        {
+            while (e is AggregateException agg && agg.InnerExceptions.Count == 1)
+            {
+                e = agg.InnerExceptions[0];
+            }
+            return e.Message;
+        }
+    }
+
+    /// <summary>
+    /// A schema load that has already been tried this session and failed, replayed from
+    /// <see cref="SchemaResolver"/>'s memory rather than attempted again.
+    /// </summary>
+    public class SchemaLoadException : Exception
+    {
+        public SchemaLoadException(Uri uri, string message) : base(message)
+        {
+            this.Uri = uri;
+        }
+
+        public Uri Uri { get; }
     }
 }

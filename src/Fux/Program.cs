@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Globalization;
 using System.Xml;
 using Terminal.Gui.App;
 using Terminal.Gui.Drawing;
@@ -42,6 +43,21 @@ namespace Fux
             {
                 if (a.Length > 0 && a[0] == '-')
                 {
+                    // The one option that carries a value, so it cannot be an exact match
+                    // against KnownFlags. Checked before that list, or every use of it would
+                    // be rejected as an unknown option.
+                    if (a.StartsWith(SchemaTimeoutFlag, StringComparison.Ordinal))
+                    {
+                        var v = a.Substring(SchemaTimeoutFlag.Length);
+                        if (!double.TryParse(v, NumberStyles.Float, CultureInfo.InvariantCulture, out var secs)
+                            || secs <= 0 || double.IsInfinity(secs))
+                        {
+                            Console.Error.WriteLine("fux: " + SchemaTimeoutFlag + " wants a positive number of seconds, not '" + v + "'");
+                            return 2;
+                        }
+                        XmlProxyResolver.Timeout = TimeSpan.FromSeconds(secs);
+                        continue;
+                    }
                     if (Array.IndexOf(KnownFlags, a) < 0)
                     {
                         Console.Error.WriteLine("fux: unknown option '" + a + "'");
@@ -150,7 +166,12 @@ namespace Fux
         {
             var hasFile = _model.Document?.DocumentElement != null;
             var items = RunValidation();
-            Console.WriteLine(SummarizeValidation(items, hasFile).Trim());
+            // Synchronous and on this thread, deliberately: OfflineThread is set in BuildUi and
+            // this path never builds a Ui, so a schema is fetched here and now. --validate is a
+            // CI entry point and has to be deterministic — the same document must give the same
+            // answer and the same exit code every run, which a background fetch cannot promise.
+            var schemaFailures = Schemas.Settled(_model.SchemaFailures);
+            Console.WriteLine(SummarizeValidation(items, hasFile, schemaFailures, false).Trim());
             int errors = 0;
             foreach (var it in items)
             {
@@ -162,7 +183,11 @@ namespace Fux
                     Console.WriteLine("      -> " + (node == null ? "(no node)" : GetLabel(node)));
                 }
             }
-            return errors == 0 ? 0 : 1;
+            // Three answers, not two. A document nothing could be checked against used to exit
+            // 0, indistinguishable from one that passed, so a CI job read "the schema host is
+            // down" as "the document is fine" (#36). Errors still win the exit code when there
+            // are any: something did validate, and what it found is the more actionable news.
+            return errors > 0 ? 1 : schemaFailures.Count > 0 ? 3 : 0;
         }
 
         // --------------------------------------------------------------------
@@ -205,6 +230,13 @@ namespace Fux
             ui.App.AddTimeout(TimeSpan.FromMilliseconds(1), () =>
             {
                 TerminalTitle.Set(_model.FileName, _model.Dirty);
+                // From here and not earlier, for two reasons. A dialog needs a driver that has
+                // learned the terminal size — a MessageBox laid out before that dies on a
+                // negative width — and Main loads the document before the app exists at all,
+                // so nothing raised from the load path would have had a UI to appear in (#37).
+                // A timeout cannot fire before the loop runs, which is exactly the ordering
+                // this needs.
+                StartSchemaPrefetch(ui);
                 return false; // once
             });
 
@@ -265,6 +297,18 @@ namespace Fux
             public XmlNode EditNode; // node whose value is being edited
             public int ModalDepth;   // >0 while a dialog/message box runs: app-wide keys stay inert
 
+            // A background schema fetch is in flight. While it is, Revalidate does nothing:
+            // that is the whole of the mutual exclusion keeping the two threads off the shared
+            // schema cache at once (see Schemas). It is also what the pane title reports, so
+            // "loading" is never mistaken for "checked and clean".
+            public bool SchemaPending;
+
+            // The set of schema failures the user has already been shown, as Schemas.FailureKey
+            // renders it. The prompt fires once per condition, not once per validation — and
+            // again when the condition changes, because a schema that has started failing for
+            // a new reason is news. Null means nothing has been acknowledged.
+            public string SchemaAckKey;
+
             // The standing find, so F3 can repeat it. Kept as the raw query rather than a
             // built Query: an XPath one caches the nodes it selected, which the next edit
             // would invalidate (see the note on Find).
@@ -287,6 +331,15 @@ namespace Fux
 
         internal static Ui BuildUi(string file)
         {
+            // From here to the end of the process, this thread does not go to the network.
+            // A schema fetch on the UI thread is a freeze however short its timeout, and
+            // validation runs after every command, so the only safe rule is the absolute one:
+            // the UI thread sees what is already in the schema cache and nothing else, and a
+            // background thread is what puts things there (#35, see Schemas). Set here rather
+            // than in RunUi so that --drill gets exactly the same UI thread the editor does —
+            // and so CI cannot reach the network through the front end at all.
+            XmlProxyResolver.OfflineThread = true;
+
             // v2 is instance-based (the static Application facade is marked obsolete).
             var app = Application.Create(null);
             app.Init(null);
@@ -328,6 +381,10 @@ namespace Fux
                     Inert(new MenuItem("_Open…", "^O", () => StartOpen(ui), new Key())),
                     Live(new MenuItem("_Save", "^S", () => SaveFile(ui), new Key())),
                     Inert(new MenuItem("Save _As…", "", () => StartSaveAs(ui), new Key())), // menu-only: see the key handler
+                    // The dialog's Retry is a one-shot: dismiss it and there would otherwise be
+                    // no way back, so a session that started offline would stay unvalidated
+                    // even after the VPN came up. Same call, reachable for the rest of the run.
+                    Inert(new MenuItem("_Reload Schemas", "", () => RetrySchemas(ui), new Key())),
                     Live(new MenuItem("_Quit", "^Q", () => RequestQuit(ui), new Key())),
                 }),
                 new MenuBarItem("_Edit", new View[]
@@ -578,6 +635,10 @@ namespace Fux
                 App = app, Top = top, Menu = menu, Status = status,
                 Tree = tree, ValueView = valueView, ErrorList = errorList, Errors = errors,
                 Undo = undo, EditInertMenu = editInert.ToArray(), EditLiveMenu = editLive.ToArray(),
+                // Set before the first Revalidate, not after: with a remote hint outstanding
+                // that pass could only report what it cannot yet know. The pane says "loading
+                // schema" until StartSchemaPrefetch's callback has a real answer.
+                SchemaPending = Schemas.RemoteHints(_model).Count > 0,
             };
             Revalidate(ui);
             UpdateTitle(ui);
@@ -819,6 +880,9 @@ namespace Fux
         private static readonly string[] KnownFlags =
             { "--dump", "--validate", "--drill", "--no-backup", "--help", "-h", "--version" };
 
+        // Not in KnownFlags: it takes a value, so it is matched by prefix in Main instead.
+        private const string SchemaTimeoutFlag = "--schema-timeout=";
+
         // What `fux --help` prints. Kept to plain stdout on purpose: the first thing anyone
         // does with an unfamiliar binary is ask it what it is, and that answer has to arrive
         // without a TTY, a document, or a running UI. Version comes from the assembly, so it
@@ -857,7 +921,11 @@ namespace Fux
                 + "  fux --version           print the version and exit\n"
                 + "  fux --help              print this message and exit\n"
                 + "\n"
-                + "--validate exits 1 if the document has validation errors, else 0.\n"
+                + "  --schema-timeout=N      seconds to wait for a schema fetch (default 5)\n"
+                + "\n"
+                + "--validate exits 1 if the document has validation errors, 3 if a schema it\n"
+                + "declares could not be fetched or was not a schema — so nothing checked it —\n"
+                + "and 0 only when the document was validated and found clean.\n"
                 + "\n"
                 + "Before overwriting a file, fux copies its previous contents next to it as\n"
                 + "<name>.<YYYYMMDD-HHMMSS>.bak. A save that changes nothing writes no backup,\n"
@@ -886,7 +954,7 @@ namespace Fux
                 + "See LICENSE and THIRD-PARTY-NOTICES.md.";
         }
 
-        private static int? ModalQuery(Ui ui, string title, string message, params string[] buttons)
+        internal static int? ModalQuery(Ui ui, string title, string message, params string[] buttons)
         {
             if (ui == null) return null;
             ui.ModalDepth++;
@@ -1580,11 +1648,121 @@ namespace Fux
         // Mutates ui.Errors in place: the RowRender/Accepting closures hold the list reference.
         private static void Revalidate(Ui ui)
         {
+            bool hasFile = _model.Document?.DocumentElement != null;
+
+            // A fetch is in flight. Validating now would be both wrong and unsafe: wrong
+            // because the schemas it would report on are the ones not yet loaded, and unsafe
+            // because the background thread is writing to the schema cache this pass reads.
+            // Not validating is the mutual exclusion — see the concurrency rule in Schemas.
+            // The previous pass's rows stay put; only the title changes, so the pane cannot
+            // read "0 errors" while the answer is still being fetched.
+            if (ui.SchemaPending)
+            {
+                ui.ErrorList.Title = SummarizeValidation(ui.Errors, hasFile, null, true).Trim();
+                return;
+            }
+
             var items = RunValidation();
             ui.Errors.Clear();
             ui.Errors.AddRange(items);
-            ui.ErrorList.Title = SummarizeValidation(ui.Errors, _model.Document?.DocumentElement != null).Trim();
+            ui.ErrorList.Title = SummarizeValidation(ui.Errors, hasFile, Schemas.Settled(_model.SchemaFailures), false).Trim();
             ui.ErrorList.SetSource(new ObservableCollection<string>(BuildErrorLines(ui.Errors)));
+        }
+
+        // Start (or restart) resolution of the document's schemas, and report on the result.
+        //
+        // The single entry point for both halves of "is this document being checked at all":
+        // the remote hints go to a background thread, and when that settles — immediately, if
+        // there are none — the pane and the prompt are brought up to date. Called on open, on
+        // opening another document, and on Retry.
+        private static void StartSchemaPrefetch(Ui ui)
+        {
+            if (ui == null) return;
+            var remote = Schemas.RemoteHints(_model);
+            ui.SchemaPending = remote.Count > 0;
+            if (ui.SchemaPending) Revalidate(ui); // repaint as "loading" before the wait starts
+            Schemas.Prefetch(_model, remote, ui.App, () =>
+            {
+                ui.SchemaPending = false;
+                Revalidate(ui);
+                WarnIfSchemaUnavailable(ui);
+            });
+        }
+
+        // Tell the user, once, that this document is not being validated and let them decide
+        // what to do about it.
+        //
+        // The dialog is half the answer and the pane title is the other half (#37). A modal
+        // fires once; the condition lasts the session, and after this is dismissed the title
+        // is the only thing still saying the document is unchecked — which is why
+        // SummarizeValidation must not go back to reading "0 errors".
+        //
+        // Headless callers never reach this: ModalQuery returns null when ui is null, and
+        // --validate and --dump never build a Ui at all. §16 of the drill asserts that rather
+        // than assuming it, since a regression here would hang CI instead of failing it.
+        internal static void WarnIfSchemaUnavailable(Ui ui)
+        {
+            if (ui == null || ui.SchemaPending) return;
+            var failures = Schemas.Settled(_model.SchemaFailures);
+            if (failures.Count == 0)
+            {
+                ui.SchemaAckKey = null; // the schemas resolved; a later failure is news again
+                return;
+            }
+            // A fetch settles on the main loop, and a modal runs a nested one — so this can
+            // arrive while the user is in the middle of another dialog. Stacking a second box
+            // on top of it would be both rude and unreadable. Come back when the screen is
+            // theirs again; the acknowledgement is deliberately not recorded yet, so nothing
+            // is lost by waiting.
+            if (ui.ModalDepth > 0)
+            {
+                ui.App.AddTimeout(TimeSpan.FromMilliseconds(250), () =>
+                {
+                    WarnIfSchemaUnavailable(ui);
+                    return false; // once; if a dialog is still up this re-arms from the top
+                });
+                return;
+            }
+            var key = Schemas.FailureKey(failures);
+            if (key == ui.SchemaAckKey) return; // already said so, and nothing has changed
+            ui.SchemaAckKey = key;
+
+            // Esc closes a MessageBox with -1, which lands here as neither Retry nor Quit —
+            // i.e. as Continue, the same as the button. That is the right reading of Esc: it
+            // dismisses the dialog, it does not quit the editor and it does not refetch.
+            int choice = ModalQuery(ui, "Schema unavailable", Schemas.Describe(failures),
+                                    SchemaButtons) ?? SchemaContinue;
+            if (choice == SchemaRetry) RetrySchemas(ui);
+            else if (choice == SchemaQuit) RequestQuit(ui);
+        }
+
+        // Quit last, and therefore the default: MessageBox binds Enter to the LAST button, the
+        // trap #21 walked into. Of the two reflexes that is the safe one — a reflexive Enter
+        // that quits costs a relaunch, while a reflexive Enter that dismisses lands the user
+        // editing a document nothing is checking, which is the exact state this prompt exists
+        // to prevent. Retry is first because the usual causes are transient: wifi not up yet,
+        // VPN not connected, captive portal not signed into.
+        //
+        // The indices sit next to the array for the same reason DeleteButtons' do: reorder one
+        // without the other and the prompt inverts. The drill asserts the pairing from here,
+        // because MessageBox's Dialog exposes no SubViews in 2.4.17 and its buttons cannot be
+        // pressed by an injected key.
+        internal static readonly string[] SchemaButtons = { "Retry", "Continue", "Quit" };
+        internal const int SchemaRetry = 0;
+        internal const int SchemaContinue = 1;
+        internal const int SchemaQuit = 2;
+
+        // Forget every remembered failure and resolve the document's schemas again.
+        //
+        // Clearing the acknowledgement too: the user asked for a fresh answer, so a fresh
+        // answer — including the same failure a second time — is worth showing. The prompt
+        // that follows is raised from the prefetch callback, never from inside this call, so
+        // repeated retries unwind one dialog before opening the next instead of nesting.
+        internal static void RetrySchemas(Ui ui)
+        {
+            (_model.SchemaResolver as SchemaResolver)?.ClearFailures();
+            ui.SchemaAckKey = null;
+            StartSchemaPrefetch(ui);
         }
 
         // The tree pane title doubles as the document title: file name + dirty marker.
@@ -1752,7 +1930,12 @@ namespace Fux
             }
             ui.Tree.SelectedObject = root; // null when the load left nothing behind
             ui.ValueView.Text = root == null ? "" : GetValue(root) ?? "";
+            // Whatever was acknowledged was about the document being replaced. Cleared before
+            // the prefetch, so the new document's schemas get their own prompt if they need it.
+            ui.SchemaAckKey = null;
+            ui.SchemaPending = false;
             Revalidate(ui);
+            StartSchemaPrefetch(ui);
             UpdateTitle(ui);
             ui.Tree.SetFocus();
         }
@@ -1794,17 +1977,43 @@ namespace Fux
             return collector.Items;
         }
 
-        private static string SummarizeValidation(List<ErrorItem> items, bool hasFile)
+        // The error pane's title, and the first line of `--validate`'s output.
+        //
+        // Its job is not to count things, it is to answer "was this document checked?". It
+        // used to conflate the two: with an unreachable schema it said "0 errors", which reads
+        // as a pass and is the wrong direction to fail in (#36). A document nothing validated
+        // now says so, here and for as long as the condition lasts — the dialog fires once,
+        // this is what is still on screen afterwards (#37).
+        private static string SummarizeValidation(List<ErrorItem> items, bool hasFile,
+                                                  IList<SchemaLoadFailure> schemaFailures, bool pending)
         {
             if (!hasFile) return " (no file loaded)";
-            if (items.Count == 0) return " Validation: no issues";
+            if (pending) return " Validation: loading schema…";
+
+            int failed = schemaFailures == null ? 0 : schemaFailures.Count;
+            string Plural(int n, string w) => $"{n} {w}{(n == 1 ? "" : "s")}";
+
             int errors = 0, warnings = 0;
             foreach (var it in items)
             {
                 if (it.Severity == Severity.Error) errors++;
                 else if (it.Severity == Severity.Warning) warnings++;
             }
-            string Plural(int n, string w) => $"{n} {w}{(n == 1 ? "" : "s")}";
+
+            if (failed > 0)
+            {
+                // Every hint the document declares failed, so nothing was checked against
+                // anything: lead with that instead of a count, which would only describe the
+                // handful of things validation can find without a schema.
+                int hints = Schemas.HintCount(_model);
+                string what = failed >= hints
+                    ? $" Not validated: {Plural(failed, "schema")} unavailable"
+                    : $" Validation: {Plural(errors, "error")}, {Plural(warnings, "warning")}"
+                      + $" — {Plural(failed, "schema")} unavailable";
+                return what + "   (Enter: go to node)";
+            }
+
+            if (items.Count == 0) return " Validation: no issues";
             return $" Validation: {Plural(errors, "error")}, {Plural(warnings, "warning")}   (Enter: go to node)";
         }
 

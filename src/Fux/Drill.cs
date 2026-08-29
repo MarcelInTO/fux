@@ -1920,6 +1920,189 @@ namespace Fux
                 Check(Program.TryOpen(ui, file) == null, "block drill: the document reopens clean");
             }
 
+            // --- 14c. A schema that cannot be loaded: fux says so, keeps saying so, and
+            // never waits for the network on this thread (#35, #36, #37). Three issues, one
+            // section, because they are one condition seen from three places — the pane, the
+            // prompt, and the fetch that must not happen here.
+            //
+            // Local fixtures throughout, deliberately. The point of #35's fix is that the UI
+            // thread does not go to the network at all, so a check that needed a route out
+            // would be measuring the runner rather than the code. The one remote hint below is
+            // never fetched from here, which is exactly what it is present to prove.
+            {
+                var schemaScratch = System.IO.Path.GetDirectoryName(file);
+                var resolver = (SchemaResolver)Program.Model.SchemaResolver;
+
+                // (a) A hint that resolves to nothing. "fux-drill-missing.xsd" and not
+                // "emp.xsd": Main copies every sibling .xsd into this directory, so the
+                // obvious name would resolve and the fixture would prove nothing.
+                var orphan = System.IO.Path.Combine(schemaScratch, "fux_drill_orphan.xml");
+                System.IO.File.WriteAllText(orphan,
+                    "<?xml version=\"1.0\"?>\n"
+                    + "<Employees xmlns=\"http://Employees\"\n"
+                    + "           xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\"\n"
+                    + "           xsi:schemaLocation=\"http://Employees fux-drill-missing.xsd\">\n"
+                    + "  <Employee/>\n"
+                    + "</Employees>\n");
+                Check(Program.TryOpen(ui, orphan) == null, "the unresolvable-schema document opens");
+                var failed = Schemas.Settled(Program.Model.SchemaFailures);
+                Check(failed.Count == 1, $"the hint that would not load is recorded ({failed.Count})");
+                Check(failed.Count == 1 && failed[0].Location == "fux-drill-missing.xsd",
+                    "...naming the hint as the document writes it");
+
+                // (b) The persistent half of #37. The dialog fires once; this is what is still
+                // on screen for the rest of the session, and "0 errors" is precisely the thing
+                // it must not say. Read from the error pane's own title row rather than from
+                // the whole screen: the diagnostics quote the file name, so a screen-wide
+                // search would find almost anything almost anywhere.
+                app.LayoutAndDraw(true);
+                int titleRow = ui.ErrorList.Frame.Y;
+                var paneTitle = ScreenRow(app, titleRow);
+                Check(paneTitle.Contains("Not validated"),
+                    $"the pane says the document was not validated [row {titleRow}: {paneTitle.Trim()}]");
+                // Not "does not say 0 errors" — that stayed green under a mutation that put
+                // the old count back, because this fixture happens to have real errors to
+                // count. The property is stronger and simpler: a document nothing checked
+                // must not report a validation result at all.
+                Check(!paneTitle.Contains("Validation:"),
+                    "...and reports no validation result, having performed none");
+
+                // (c) The button order, asserted from the array. MessageBox's Dialog exposes no
+                // SubViews in 2.4.17 and injected keys reach only app-scope bindings, so the
+                // buttons cannot be pressed — same reason DeleteButtons is checked this way.
+                // Enter lands on the LAST button (#21), and of the two reflexes the safe one is
+                // quitting: dismissing leaves the user editing a document nothing is checking.
+                Check(Program.SchemaButtons[Program.SchemaButtons.Length - 1] == "Quit"
+                      && Program.SchemaQuit == Program.SchemaButtons.Length - 1,
+                    "the schema prompt puts Quit last, where MessageBox's Enter lands");
+                Check(Program.SchemaButtons[Program.SchemaRetry] == "Retry"
+                      && Program.SchemaButtons[Program.SchemaContinue] == "Continue",
+                    "...and Retry and Continue index the buttons they name");
+
+                // ...and that it actually opens, on the running UI, naming the schema.
+                int depth = -1, ticks = 0;
+                string modalText = null;
+                var tok = app.AddTimeout(TimeSpan.FromMilliseconds(100), () =>
+                {
+                    ticks++;
+                    if (depth < 0 && ui.ModalDepth > 0)
+                    {
+                        depth = ui.ModalDepth;
+                        app.LayoutAndDraw(true);
+                        modalText = ScreenText(app);
+                    }
+                    app.Keyboard.RaiseKeyDownEvent(Key.Esc);
+                    if (ticks > 20 && !ReferenceEquals(app.TopRunnable, ui.Top))
+                        app.RequestStop(app.TopRunnable);
+                    return ticks <= 30;
+                });
+                Program.WarnIfSchemaUnavailable(ui);
+                app.RemoveTimeout(tok); // never leave one armed for the next modal — see §14a
+                Check(depth > 0, $"the schema prompt opens on the running UI [ticks={ticks}]");
+                Check(modalText != null && modalText.Contains("fux-drill-missing.xsd"),
+                    "...naming the schema it could not load");
+
+                // (d) Once per condition, not once per validation — validation runs after every
+                // command, and a box that reopened on each of them would be unusable.
+                Check(!string.IsNullOrEmpty(ui.SchemaAckKey), "the prompt is recorded as acknowledged");
+                int depth2 = -1, ticks2 = 0;
+                var tok2 = app.AddTimeout(TimeSpan.FromMilliseconds(100), () =>
+                {
+                    ticks2++;
+                    if (depth2 < 0 && ui.ModalDepth > 0) depth2 = ui.ModalDepth;
+                    app.Keyboard.RaiseKeyDownEvent(Key.Esc);
+                    if (ticks2 > 20 && !ReferenceEquals(app.TopRunnable, ui.Top))
+                        app.RequestStop(app.TopRunnable);
+                    return ticks2 <= 30;
+                });
+                Program.WarnIfSchemaUnavailable(ui);
+                app.RemoveTimeout(tok2);
+                Check(depth2 < 0, $"the same failure does not prompt a second time [ticks={ticks2}]");
+
+                // (e) The retry storm, and the way out of it. Without the memory this is the
+                // 120-second `--validate` and the freeze-per-keystroke of #35; without the
+                // forgetting, a transient failure would outlive the wifi coming back.
+                var missing = new Uri(new Uri(orphan), "fux-drill-missing.xsd");
+                Check(resolver.HasFailed(missing),
+                    "the failure is remembered, so the next validation does not repeat the load");
+                Program.RetrySchemas(ui);
+                Check(!resolver.HasFailed(missing),
+                    "Retry forgets it, so the next load goes back to the source");
+                Check(ui.SchemaAckKey == null,
+                    "...and un-acknowledges, so the same failure is worth reporting again");
+
+                // (f) #35 itself: this thread does not go to the network. Structural, not
+                // timed — a remote hint comes back recorded as *pending*, which can only
+                // happen if the fetch was declined before a socket was opened.
+                Check(XmlProxyResolver.OfflineThread, "the UI thread is barred from fetching a schema");
+                var blackhole = System.IO.Path.Combine(schemaScratch, "fux_drill_blackhole.xml");
+                System.IO.File.WriteAllText(blackhole,
+                    "<?xml version=\"1.0\"?>\n"
+                    + "<Employees xmlns=\"http://Employees\"\n"
+                    + "           xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\"\n"
+                    + "           xsi:schemaLocation=\"http://Employees http://192.0.2.1/fux-drill.xsd\">\n"
+                    + "  <Employee/>\n"
+                    + "</Employees>\n");
+                var timeoutWas = XmlProxyResolver.Timeout;
+                try
+                {
+                    // Opening it starts a real background fetch, and 192.0.2.1 is unroutable by
+                    // RFC 5737 — packets are dropped, not refused, so it costs the full timeout.
+                    // Cap what that is worth to a CI runner. Restored in the finally: a mutation
+                    // of the timeout left standing would be paid by every later section.
+                    // Three seconds, not fifty milliseconds: the elapsed-time check below has
+                    // to be able to fail. Nothing pays this in a passing run — the UI thread
+                    // declines the fetch outright — so it is only spent by the background
+                    // prefetch, off this thread, and by a regression that lets the fetch back
+                    // onto it, which is the whole point.
+                    XmlProxyResolver.Timeout = TimeSpan.FromSeconds(3);
+                    var sw = System.Diagnostics.Stopwatch.StartNew();
+                    Check(Program.TryOpen(ui, blackhole) == null, "the black-holed-schema document opens");
+                    sw.Stop();
+                    var recorded = Program.Model.SchemaFailures;
+                    Check(recorded.Count == 1 && recorded[0].Pending,
+                        $"the remote hint is declined on this thread, not fetched ({recorded.Count} recorded)");
+                    Check(Schemas.Settled(recorded).Count == 0,
+                        "...and a declined fetch is not reported to the user as a broken schema");
+                    Check(ui.SchemaPending, "the document is marked as still waiting for its schema");
+                    app.LayoutAndDraw(true);
+                    var waiting = ScreenRow(app, ui.ErrorList.Frame.Y);
+                    Check(waiting.Contains("loading schema"),
+                        $"the pane says the schema is still loading [{waiting.Trim()}]");
+                    // Again not "does not say 0 errors": a mutation that removed the pending
+                    // branch put back "2 errors, 0 warnings", which contains neither of those
+                    // phrases and left the check green. What must not be here is a count of
+                    // anything, since counting is exactly what has not happened yet.
+                    Check(!waiting.Contains("error") && !waiting.Contains("no issues"),
+                        "...rather than a tally of what a pass without the schema happened to find");
+                    // The structural checks above are the oracle; this is the number the user
+                    // actually felt — 60s per hint, twice per validation pass, before the fix.
+                    Check(sw.Elapsed < TimeSpan.FromSeconds(2),
+                        $"opening it does not block on the network ({sw.ElapsedMilliseconds} ms)");
+                }
+                finally
+                {
+                    XmlProxyResolver.Timeout = timeoutWas;
+                }
+
+                // (g) #37 asks for this as an assertion rather than an assumption, because a
+                // regression here would hang CI instead of failing it: --validate and --dump
+                // never build a Ui, and ModalQuery is what makes that safe.
+                Check(Program.ModalQuery(null, "t", "m", "a", "b") == null,
+                    "a headless caller is never prompted");
+
+                // Back to the drill's own document, clean, for §15 — and the last check is
+                // about the two documents just opened as much as this one. All three declare
+                // the same target namespace, so the schema cache holds an entry for each of
+                // their hints; a document whose own schema loads must not inherit the failures
+                // of whatever was open before it.
+                Check(Program.TryOpen(ui, file) == null, "schema drill: the document reopens clean");
+                Check(!ui.SchemaPending, "...and is not left waiting on a schema");
+                var reopened = Schemas.Settled(Program.Model.SchemaFailures);
+                Check(reopened.Count == 0,
+                    $"...and does not inherit the failed hints of the documents before it ({reopened.Count})");
+            }
+
             // --- 15. F9 focuses the menu bar; ^Q requests stop. The document is clean by
             // now (§14a reopened it), so ^Q must not prompt — and with no timeout armed to
             // answer one, a prompt here would hang the run rather than quietly pass.

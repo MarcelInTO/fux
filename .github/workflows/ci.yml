@@ -177,6 +177,22 @@ jobs:
           echo "$out" | grep -q "MinInclusive constraint failed" || { echo "::error::missing expected Zip range error"; exit 1; }
           echo "$out" | grep -q -- "-> <Zip>"                    || { echo "::error::error row did not map to the <Zip> node"; exit 1; }
 
+      # The failure direction that matters (#36): a document nothing could be checked against
+      # used to exit 0 and print "0 errors", so a CI job read "the schema host is down" as "the
+      # document is fine". The fixture's hint is a missing sibling file rather than a URL, so
+      # this asserts the behaviour and not the runner's network.
+      - name: Fux validation smoke (unloadable schema -> exit 3, never a pass)
+        shell: bash
+        run: |
+          printf '<?xml version="1.0"?>\n<Employees xmlns="http://Employees" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://Employees no-such.xsd">\n  <Employee/>\n</Employees>\n' > "$RUNNER_TEMP/noschema.xml"
+          set +e
+          out=$(dotnet run --project src/Fux -c Release -- --validate "$RUNNER_TEMP/noschema.xml")
+          code=$?
+          set -e
+          echo "$out"
+          [ "$code" -eq 3 ] || { echo "::error::a document whose schema would not load should exit 3 (got $code)"; exit 1; }
+          echo "$out" | grep -q "Not validated" || { echo "::error::an unchecked document reported a validation result"; exit 1; }
+
       # Drives the real TUI under a PTY: --drill builds the actual UI, injects key events
       # (F6 focus ring, Enter-to-jump, F9 menu, ^Q), and asserts against the driver's output
       # buffer — borders/titles render, every cell painted, only theme-palette backgrounds.
