@@ -1764,6 +1764,156 @@ namespace Fux
                 Check(!broken.Missing && broken.Blocks.Count == 0 && broken.Problem != null,
                     $"an unparseable config reports instead of throwing ('{broken.Problem}')");
 
+                // --- Sections (#38). A long list of snippets for several schemas is
+                // unnavigable by name alone, so a config may group them; the panel heads each
+                // group and indents what is under it.
+                System.IO.File.WriteAllText(cfgPath, SectionConfig);
+                var sec = Snippets.Load();
+                Check(sec.Problem == null && sec.Blocks.Count == 4,
+                    $"a sectioned config loads every block (got {sec.Blocks.Count}, problem '{sec.Problem}')");
+                Check(sec.Blocks.Count == 4 && sec.Blocks[0].Section == null
+                      && sec.Blocks[1].Section == "Blocks" && sec.Blocks[2].Section == "Blocks"
+                      && sec.Blocks[3].Section == "Illustrations",
+                    "...each carrying the section it was written in, and null outside one");
+
+                var secRows = Snippets.Rows(sec.Blocks);
+                Check(RowText(secRows) == "Loose|Blocks|  Paragraph|  Footnote|Illustrations|  Plate",
+                    $"the panel heads each section and indents its snippets (got '{RowText(secRows)}')");
+                Check(secRows.Count == 6 && secRows[1].IsHeading && secRows[4].IsHeading
+                      && !secRows[0].IsHeading && !secRows[2].IsHeading,
+                    "...with the headings marked as headings and nothing else");
+                Check(secRows.Count == 6 && secRows[2].BlockIndex == 1 && secRows[5].BlockIndex == 3,
+                    "...and every snippet row pointing at the block it inserts");
+
+                // The old shape has to be untouched: someone who has never written a section
+                // must get the list they have always had, unindented and heading-free.
+                var flatRows = Snippets.Rows(Snippets.LoadFrom(WriteConfig(cfgPath, GoodConfig)).Blocks);
+                Check(RowText(flatRows) == "Footnote|Sidebar|Prefixed",
+                    $"a config with no sections draws exactly the old flat list (got '{RowText(flatRows)}')");
+
+                // A section written wrong costs its snippets nothing — the same rule the rest
+                // of this file follows, since a config is hand-edited and half of one working
+                // beats none of it.
+                System.IO.File.WriteAllText(cfgPath, BadSectionConfig);
+                var badSec = Snippets.Load();
+                Check(badSec.Blocks.Count == 4,
+                    $"an unnamed and a nested section keep their snippets (got {badSec.Blocks.Count})");
+                Check(badSec.Blocks.Count == 4 && badSec.Blocks[0].Section == null
+                      && badSec.Blocks[1].Section == "Outer" && badSec.Blocks[2].Section == "Outer"
+                      && badSec.Blocks[3].Section == null,
+                    "...ungrouped and folded into the parent respectively");
+                Check(badSec.Problem != null && badSec.Problem.Contains("2"),
+                    $"...and both are reported ('{badSec.Problem}')");
+
+                // A heading is a label, not a choice. This is the check that keeps ^B-arrow-
+                // Enter landing on something insertable: the selection steps over a heading in
+                // whichever direction it was travelling, and off the end it turns round.
+                Check(Program.SkipHeadings(secRows, 0, 1) == 2,
+                    "moving down onto a heading continues down to the snippet under it");
+                Check(Program.SkipHeadings(secRows, 5, 4) == 3,
+                    "...and moving up onto one continues up");
+                Check(Program.SkipHeadings(secRows, 0, 2) == 2 && Program.SkipHeadings(secRows, 3, 0) == 0,
+                    "...while a row that already holds a snippet is left alone");
+                var headFirst = Snippets.Rows(Snippets.LoadFrom(WriteConfig(cfgPath,
+                    @"<snippets><section name=""S""><snippet name=""Only""><x/></snippet></section></snippets>")).Blocks);
+                Check(Program.SkipHeadings(headFirst, 0, 0) == 1,
+                    "a heading in the first row turns the search round rather than sticking on it");
+
+                // Reopening on the last-used block, which is remembered as a block index while
+                // the panel is addressed by row. The config is re-read on every open, so the
+                // block may also have gone: then the first selectable row, never a heading.
+                Check(Program.RowForBlock(secRows, 3) == 5, "the panel reopens on the row of the last block used");
+                Check(Program.RowForBlock(secRows, 99) == 0, "...or the first row when that block has gone");
+                Check(!headFirst[Program.RowForBlock(headFirst, 99)].IsHeading,
+                    "...and never on a heading, even when the first row is one");
+
+                // The panel itself, not just the mapping: that the redirect is actually wired
+                // to the live ListView, and that a heading is legible as one. Driven by setting
+                // SelectedItem, which is the only way in — injected keys reach app-scope
+                // bindings only, so arrows never arrive at the list (see §14a).
+                System.IO.File.WriteAllText(cfgPath, SectionConfig);
+                // Row indices taken from secRows, never written in by hand: a build with the
+                // headings mutated away has a shorter list, and setting SelectedItem past its
+                // end is what turned a mutation run into a hang. Left at -1 when the shape is
+                // gone, so the checks below go red rather than silent.
+                int firstHead = -1, laterHead = -1;
+                for (int i = 0; i < secRows.Count; i++)
+                {
+                    if (!secRows[i].IsHeading) continue;
+                    if (firstHead < 0) firstHead = i;
+                    else if (laterHead < 0) laterHead = i;
+                }
+                int landedDown = -1, landedUp = -1, listRows = -1;
+                bool matcherAttached = false;
+                var headingAttr = default(Terminal.Gui.Drawing.Attribute?);
+                var snippetAttr = default(Terminal.Gui.Drawing.Attribute?);
+                RunSnippetPanel(app, ui, () =>
+                {
+                    var list = FindById(app.TopRunnable as View, Program.SnippetListId) as ListView;
+                    if (list == null) return;
+
+                    // Colours first, and from the top of the list. Moving the selection scrolls
+                    // the panel — six rows in a viewport this size — and reading afterwards
+                    // found neither row on screen at all, which is the same lesson as anywhere
+                    // else here: assert on the row, and make sure the row is still where you
+                    // think it is.
+                    list.MoveHome();
+                    app.LayoutAndDraw(true);
+                    headingAttr = AttrOfRowWith(app, "Blocks");
+                    snippetAttr = AttrOfRowWith(app, "Paragraph");
+                    listRows = list.Viewport.Height;
+
+                    int count = list.Source?.Count ?? 0;
+                    // Onto the first heading from the row above it — travelling down.
+                    if (firstHead > 0 && firstHead + 1 < count)
+                    {
+                        list.SelectedItem = firstHead - 1;
+                        list.SelectedItem = firstHead;
+                        landedDown = list.SelectedItem ?? -1;
+                    }
+                    // Onto the second heading from the row below it — travelling up.
+                    if (laterHead > 0 && laterHead + 1 < count)
+                    {
+                        list.SelectedItem = laterHead + 1;
+                        list.SelectedItem = laterHead;
+                        landedUp = list.SelectedItem ?? -1;
+                    }
+                    matcherAttached = list.KeystrokeNavigator?.Matcher is SnippetMatcher;
+                });
+                Check(firstHead > 0 && landedDown == firstHead + 1,
+                    $"the panel's selection steps over a heading downwards (landed {landedDown}, heading at {firstHead})");
+                Check(laterHead > 0 && landedUp == laterHead - 1,
+                    $"...and upwards (landed {landedUp}, heading at {laterHead})");
+                Check(headingAttr?.Foreground == Theme.HeadingRow.Foreground,
+                    $"a heading is drawn in the heading colour (got {headingAttr?.Foreground})");
+                Check(snippetAttr.HasValue && snippetAttr?.Foreground != Theme.HeadingRow.Foreground,
+                    $"...and a snippet under it is not (got {(snippetAttr.HasValue ? snippetAttr?.Foreground.ToString() : "NOT FOUND")})");
+
+                // A config that fits on the screen must be shown whole. It was not: the panel
+                // reserved six rows for its chrome and spends ten, so this six-row config got a
+                // two-row list. Long configs hid it — they clamp to the screen and scroll —
+                // and sections make short ones the case that matters, since a heading is one
+                // more row to fit. The number is pinned rather than the symptom, so a framework
+                // change to the chrome fails here rather than silently shrinking the list.
+                Check(listRows >= 6, $"a config that fits is shown whole ({listRows} rows for 6)");
+
+                // Typing a letter jumps to the next row starting with it. That is undocumented
+                // and easy to break silently — a sectioned snippet is drawn two spaces in, and
+                // the stock matcher compares against the row exactly as drawn, so every indented
+                // snippet would stop answering to its own first letter.
+                var matcher = new SnippetMatcher();
+                Check(matcher.IsMatch("p", Snippets.RowIndent + "Paragraph"),
+                    "type-ahead reaches a snippet past the indent its section gives it");
+                Check(!(Snippets.RowIndent + "Paragraph").StartsWith("p", StringComparison.CurrentCultureIgnoreCase),
+                    "...which the stock comparison would not, indent included as it is");
+                Check(matcher.IsMatch("Illu", "Illustrations") && !matcher.IsMatch("z", "  Paragraph"),
+                    "...and it still matches a heading, and still declines a non-match");
+                Check(matcherAttached, "the panel's list is actually using it");
+
+                // Back to the flat config for the insert checks below, which index Blocks
+                // directly and were written before sections existed.
+                System.IO.File.WriteAllText(cfgPath, GoodConfig);
+
                 // Inserting one. The host is an element the drill just made, so its layout is
                 // known on every fixture: freshly inserted and childless, which is the case
                 // XmlLayout indents into.
@@ -2344,6 +2494,34 @@ namespace Fux
   </snippet>
 </snippets>";
 
+        // Sections: two of them, an ungrouped block before the first, and both ways of
+        // writing a section wrong — neither of which may cost the snippets inside it (#38).
+        private const string SectionConfig = @"<snippets>
+  <snippet name=""Loose""><loose/></snippet>
+  <section name=""Blocks"">
+    <snippet name=""Paragraph""><block/></snippet>
+    <snippet name=""Footnote""><block kind=""footnote""/></snippet>
+  </section>
+  <section name=""Illustrations"">
+    <snippet name=""Plate""><illustration role=""plate""/></snippet>
+  </section>
+</snippets>";
+
+        // An unnamed section and a nested one. Both are reported; all four blocks survive,
+        // the unnamed section's ungrouped and the nested one's folded into its parent.
+        private const string BadSectionConfig = @"<snippets>
+  <section>
+    <snippet name=""Orphan""><a/></snippet>
+  </section>
+  <section name=""Outer"">
+    <snippet name=""Direct""><b/></snippet>
+    <section name=""Inner"">
+      <snippet name=""Deep""><c/></snippet>
+    </section>
+  </section>
+  <snippet name=""Top""><d/></snippet>
+</snippets>";
+
         // Two good blocks and two that cannot load, for two different reasons.
         private const string MixedConfig = @"<snippets>
   <snippet name=""Keeper""><good/></snippet>
@@ -2351,6 +2529,36 @@ namespace Fux
   <snippet name=""TooMany""><a/><b/></snippet>
   <snippet name=""AlsoKeeper""><fine/></snippet>
 </snippets>";
+
+        /// <summary>
+        /// The attribute the first painted character of the row containing <paramref name="text"/>
+        /// carries — how a row's colour is read back, since RowRender sets it per row.
+        /// </summary>
+        private static Terminal.Gui.Drawing.Attribute? AttrOfRowWith(Terminal.Gui.App.IApplication app, string text)
+        {
+            int row = RowIndexOf(app, text);
+            if (row < 0) return null;
+            var cells = app.Driver.GetOutputBuffer().Contents;
+            // Start at the text itself, not at column 0: the row crosses the dialog border and
+            // the tree pane behind it, which carry colours of their own.
+            int col = ScreenRow(app, row).IndexOf(text, StringComparison.Ordinal);
+            return col < 0 || col >= cells.GetLength(1) ? null : cells[row, col].Attribute;
+        }
+
+        /// <summary>The panel's rows as one string, indent included, for a single assertion.</summary>
+        private static string RowText(List<SnippetRow> rows)
+        {
+            var parts = new List<string>();
+            foreach (var r in rows) parts.Add(r.Text);
+            return string.Join("|", parts);
+        }
+
+        /// <summary>Write a config and hand back its path, so a load can be inlined.</summary>
+        private static string WriteConfig(string path, string xml)
+        {
+            System.IO.File.WriteAllText(path, xml);
+            return path;
+        }
 
         private static string ChildElementNames(XmlElement e)
         {
@@ -2409,7 +2617,17 @@ namespace Fux
             var tok = app.AddTimeout(TimeSpan.FromMilliseconds(100), () =>
             {
                 ticks++;
-                if (!probed && ui.ModalDepth > 0) { probed = true; probe(); }
+                // Guarded, because an exception here does not merely fail the probe: it
+                // escapes the timeout callback, the Esc below never runs, and the modal stays
+                // up until the harness deadline — a HANG rather than a failure, which is the
+                // one outcome worse than a red check. Cost a mutation run to learn: a probe
+                // indexing a row that a mutated build no longer has took down the whole run.
+                if (!probed && ui.ModalDepth > 0)
+                {
+                    probed = true;
+                    try { probe(); }
+                    catch (Exception ex) { _lastDialogDiag += " PROBE THREW: " + ex.Message; }
+                }
                 if (escOut) app.Keyboard.RaiseKeyDownEvent(Key.Esc);
                 if (ticks > 20 && !ReferenceEquals(app.TopRunnable, ui.Top))
                     app.RequestStop(app.TopRunnable);
@@ -2429,7 +2647,12 @@ namespace Fux
             var tok = app.AddTimeout(TimeSpan.FromMilliseconds(100), () =>
             {
                 ticks++;
-                if (!probed && ui.ModalDepth > 0) { probed = true; probe(); }
+                if (!probed && ui.ModalDepth > 0)
+                {
+                    probed = true;
+                    try { probe(); }
+                    catch (Exception ex) { _lastDialogDiag += " PROBE THREW: " + ex.Message; }
+                }
                 app.Keyboard.RaiseKeyDownEvent(Key.Esc);
                 if (ticks > 20 && !ReferenceEquals(app.TopRunnable, ui.Top))
                     app.RequestStop(app.TopRunnable);
