@@ -4,6 +4,8 @@ A cross-platform terminal based XML editor. Browse, edit and validate XML from a
 schema-aware, and undoable. Runs on linux, windows, and macos  — as a single self-contained
 binary with no runtime to install.
 
+<img width="1502" height="944" alt="Screenshot 2026-09-14 at 2 29 14 PM" src="https://github.com/user-attachments/assets/b114327d-ac92-4f80-82da-baaee6374d78" />
+
 fux reuses the battle-tested document engine from
 [Microsoft XML Notepad](https://github.com/microsoft/XmlNotepad) (XSD validation,
 schema cache, DOM loader, undo manager) behind a
