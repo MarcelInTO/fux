@@ -2554,9 +2554,15 @@ namespace Fux
             // the panel showed a problem only when NOTHING loaded, so a snippets.xml with one bad
             // snippet among good ones was reported nowhere. The user's partly broken file goes
             // in too, so both lines are on screen and the first is that regression.
+            //
+            // THREE problem lines, not two. The list reserves rows for them; with that
+            // reservation removed, two lines still fit, exactly, in the two rows the list
+            // always holds back — so a two-line fixture stayed green under that mutation. The
+            // third is a library with the wrong root, which is the other way a file fails.
             System.IO.File.WriteAllText(cfgPath, MixedConfig);
-            string row0 = null, row1 = null;
-            int listRows = -1, listCount = -1;
+            System.IO.File.WriteAllText(Lib("1-wrongroot.xml"), "<library><snippet name='x'><x/></snippet></library>");
+            string row0 = null, row1 = null, row2 = null;
+            int listRows = -1, listCount = -1, noteBottom = -1, roomBottom = -1, listBottom = -1, noteTop = -1;
             var noteAttr = default(Terminal.Gui.Drawing.Attribute?);
             bool opened = RunSnippetPanel(app, ui, () =>
             {
@@ -2572,12 +2578,26 @@ namespace Fux
                 var at = note.FrameToScreen();
                 row0 = ScreenRow(app, at.Y);
                 row1 = ScreenRow(app, at.Y + 1);
+                row2 = ScreenRow(app, at.Y + 2);
                 noteAttr = app.Driver.GetOutputBuffer().Contents[at.Y, at.X].Attribute;
+                // Where the label may end: inside the dialog, and above any button that sits
+                // in the same content area. A label that runs past either is clipped or drawn
+                // over the buttons — on screen, in a way a row read might not notice.
+                noteTop = note.Frame.Y;
+                noteBottom = note.Frame.Bottom;
+                listBottom = list.Frame.Bottom;
+                roomBottom = note.SuperView?.Viewport.Height ?? -1;
+                foreach (var v in note.SuperView?.SubViews ?? new List<View>())
+                    if (v is Button b) roomBottom = Math.Min(roomBottom, b.Frame.Y);
             });
             Check(opened && row0 != null && row0.Contains("snippets.xml: skipped 2"),
                 $"the panel reports the user's skipped snippets beside the ones that loaded [{row0?.Trim()}] [{_lastDialogDiag}]");
             Check(row1 != null && row1.Contains(badLabel),
                 $"...and the broken library, on the next row [{row1?.Trim()}]");
+            Check(row2 != null && row2.Contains(System.IO.Path.Combine(Snippets.LibraryDirName, "1-wrongroot.xml") + ": expected a <snippets> root"),
+                $"...and the one with the wrong root, on the row after [{row2?.Trim()}]");
+            Check(noteTop >= listBottom && noteBottom > 0 && noteBottom <= roomBottom,
+                $"...all of them below the list and inside the panel (list ends {listBottom}, problems {noteTop}-{noteBottom}, room to {roomBottom})");
             Check(noteAttr?.Foreground == Theme.WarningRow.Foreground,
                 $"...in the warning colour (got {noteAttr?.Foreground})");
             Check(listCount > 0 && listRows >= listCount,
