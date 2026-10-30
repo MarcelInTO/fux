@@ -80,7 +80,7 @@ jobs:
           # the prose line below the list, so deleting the row it is meant to guard left the
           # check green — verified by removing it.
           echo "$out" | grep -q '^Usage:$'                     || { echo "::error::--help printed no usage"; exit 1; }
-          for row in '<file> ' '--no-backup <file>' '--dump <file>' '--validate <file>' '--version' '--help'; do
+          for row in '<file> ' '--no-backup <file>' '--dump <file>' '--validate <file>' '--snippets' '--version' '--help'; do
             echo "$out" | grep -q "^  fux $row" || { echo "::error::--help omits the '$row' row"; exit 1; }
           done
 
@@ -239,6 +239,72 @@ jobs:
           dotnet publish src/Fux/Fux.csproj -c Release
           -r ${{ matrix.rid }} --self-contained true
           -p:PublishSingleFile=true -o publish
+
+      # Snippet libraries (#41), run on the published binary because where fux looks depends
+      # on where the binary is: the install prefix is derived from its own path. Three layouts.
+      #
+      #  1. The config dir, via the variable each OS actually reads — %APPDATA% on Windows,
+      #     $XDG_CONFIG_HOME elsewhere. This is the only coverage the Windows directory gets:
+      #     the drill cannot run on that runner.
+      #  2. A plain install, <prefix>/bin/fux, with the library in <prefix>/share/fux/snippets.d.
+      #  3. Homebrew's layout: the binary in a keg, reached through a relative symlink in
+      #     <prefix>/bin. Not on Windows, which has no Homebrew. Whether .NET reports the
+      #     symlink or the file it points at is printed, not asserted — either way the prefix
+      #     must come out right, and that is what is checked. The line in the log is how the
+      #     Linux answer was measured rather than assumed (on macOS it is the real file).
+      #
+      # HOMEBREW_PREFIX is unset throughout: the macOS runner has brew, and its prefix would
+      # otherwise be read too, so a library in the wrong place could still be found.
+      - name: Snippet library smoke (--snippets, published binary)
+        shell: bash
+        run: |
+          exe=publish/fux; [ -f publish/fux.exe ] && exe=publish/fux.exe
+          name=$(basename "$exe")
+          tmp="$RUNNER_TEMP"
+          [ "$RUNNER_OS" = "Windows" ] && tmp=$(cygpath -u "$RUNNER_TEMP")
+          # What .NET is handed must be a native path; Git Bash's /d/a/... is not one.
+          native() { if [ "$RUNNER_OS" = "Windows" ]; then cygpath -w "$1"; else echo "$1"; fi; }
+          run() { env -u HOMEBREW_PREFIX -u FUX_CONFIG_DIR XDG_CONFIG_HOME="$(native "$2")" APPDATA="$(native "$2")" "$1" --snippets; }
+          lib='<snippets><snippet name="FromPrefix"><p/></snippet></snippets>'
+
+          echo "::group::1. config dir"
+          cfg="$tmp/cfg"; mkdir -p "$cfg/fux/snippets.d"
+          echo '<snippets><snippet name="Mine"><mine/></snippet></snippets>' > "$cfg/fux/snippets.xml"
+          echo '<snippets><section name="Lib"><snippet name="One"><one/></snippet><snippet name="Two"><two/></snippet></section></snippets>' > "$cfg/fux/snippets.d/lib.xml"
+          echo '<snippets><snippet name="x"></snippets>' > "$cfg/fux/snippets.d/0-broken.xml"
+          set +e; out=$(run "$exe" "$cfg"); code=$?; set -e
+          echo "$out"; echo "::endgroup::"
+          [ "$code" -eq 1 ] || { echo "::error::--snippets should exit 1 when a file has a problem (got $code)"; exit 1; }
+          loaded=$(echo "$out" | sed -n '/^Loaded/,$p' | sed 1d)
+          echo "$loaded" | sed -n 1p | grep -q 'snippets.xml: 1 snippet$'  || { echo "::error::the user's snippets.xml is not first, or did not load"; exit 1; }
+          echo "$loaded" | sed -n 2p | grep -q '0-broken.xml: 0 snippets; ' || { echo "::error::the broken library is not reported second, by name"; exit 1; }
+          echo "$loaded" | sed -n 3p | grep -q 'lib.xml: 2 snippets$'       || { echo "::error::the good library did not load after the broken one"; exit 1; }
+
+          echo "::group::2. plain install"
+          plain="$tmp/plain"; mkdir -p "$plain/bin" "$plain/share/fux/snippets.d" "$tmp/empty"
+          cp "$exe" "$plain/bin/$name"
+          echo "$lib" > "$plain/share/fux/snippets.d/pkg.xml"
+          out=$(run "$plain/bin/$name" "$tmp/empty")
+          echo "$out"; echo "::endgroup::"
+          echo "$out" | grep -q 'pkg.xml: 1 snippet$' || { echo "::error::a library under <prefix>/share/fux/snippets.d was not read"; exit 1; }
+
+          if [ "$RUNNER_OS" != "Windows" ]; then
+            echo "::group::3. Homebrew layout"
+            brew="$tmp/brew"; mkdir -p "$brew/Cellar/fux/9.9.9/bin" "$brew/bin" "$brew/share/fux/snippets.d"
+            cp "$exe" "$brew/Cellar/fux/9.9.9/bin/fux"
+            ln -s ../Cellar/fux/9.9.9/bin/fux "$brew/bin/fux"
+            echo "$lib" > "$brew/share/fux/snippets.d/pkg.xml"
+            out=$(run "$brew/bin/fux" "$tmp/empty")
+            echo "$out"; echo "::endgroup::"
+            exe_seen=$(echo "$out" | sed -n 's/^Executable: *//p')
+            case "$exe_seen" in
+              */Cellar/*) echo "measured: .NET reports the RESOLVED path through the bin/ symlink ($exe_seen)";;
+              *)          echo "measured: .NET reports the SYMLINK's path ($exe_seen)";;
+            esac
+            echo "$out" | grep -qxF "Install prefix:  $(cd "$brew" && pwd -P)" \
+              || { echo "::error::the install prefix is not the directory above Cellar"; exit 1; }
+            echo "$out" | grep -q 'pkg.xml: 1 snippet$' || { echo "::error::the Homebrew-linked library was not read"; exit 1; }
+          fi
 
       - name: Upload binary artifact
         uses: actions/upload-artifact@v4
