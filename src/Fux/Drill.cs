@@ -2592,6 +2592,8 @@ namespace Fux
             });
             Check(opened && row0 != null && row0.Contains("snippets.xml: skipped 2"),
                 $"the panel reports the user's skipped snippets beside the ones that loaded [{row0?.Trim()}] [{_lastDialogDiag}]");
+            // Its message is longer than the panel is wide, and must not wrap into the row the
+            // next problem needs — which is what the check after this caught.
             Check(row1 != null && row1.Contains(badLabel),
                 $"...and the broken library, on the next row [{row1?.Trim()}]");
             Check(row2 != null && row2.Contains(System.IO.Path.Combine(Snippets.LibraryDirName, "1-wrongroot.xml") + ": expected a <snippets> root"),

@@ -1226,6 +1226,14 @@ namespace Fux
                         Id = SnippetProblemId,
                     };
                     note.HotKeySpecifier = NoHotKey; // file names and paths
+                    // Clipped at the panel's edge rather than wrapped: a Label wraps a long line
+                    // onto the next row, so one long XmlException message pushed the next
+                    // file's problem out of the rows reserved for it (drilled). Each line leads
+                    // with its file, and `fux --snippets` prints the whole message. Not cut to
+                    // a computed width with an ellipsis: that was tried, and the arithmetic
+                    // missed the dialog's shadow column — the trap SnippetPanelChrome records.
+                    note.TextFormatter.WordWrap = false;
+                    note.TextFormatter.MultiLine = true; // wrap off also turns the \n's off
                     // The error pane's warning colour: a skipped snippet is a warning — the
                     // rest loaded — and Error red would say otherwise.
                     note.SetScheme(new Scheme { Normal = Theme.WarningRow });
