@@ -28,6 +28,13 @@ namespace Fux
                 Console.WriteLine("fux " + VersionString);
                 return 0;
             }
+            if (Array.IndexOf(args, "--snippets") >= 0)
+            {
+                var dirs = Snippets.LibraryDirs();
+                var set = Snippets.LoadAll(Snippets.ConfigPath(), dirs);
+                Console.Write(Snippets.Report(Snippets.ConfigPath(), dirs, set));
+                return set.Problems.Count > 0 ? 1 : 0;
+            }
 
             var dump = Array.IndexOf(args, "--dump") >= 0;
             var validate = Array.IndexOf(args, "--validate") >= 0;
@@ -878,7 +885,7 @@ namespace Fux
         // it is the interactive self-test, useful to a contributor and noise to everyone
         // else — but it belongs here, or the argument check would reject the thing CI runs.
         private static readonly string[] KnownFlags =
-            { "--dump", "--validate", "--drill", "--no-backup", "--help", "-h", "--version" };
+            { "--dump", "--validate", "--drill", "--no-backup", "--help", "-h", "--version", "--snippets" };
 
         // Not in KnownFlags: it takes a value, so it is matched by prefix in Main instead.
         private const string SchemaTimeoutFlag = "--schema-timeout=";
@@ -918,6 +925,7 @@ namespace Fux
                 + "  fux --no-backup <file>  edit without keeping backups (see below)\n"
                 + "  fux --dump <file>       print the document structure and exit\n"
                 + "  fux --validate <file>   report XSD validation errors and exit\n"
+                + "  fux --snippets          list the snippet files fux reads, and exit\n"
                 + "  fux --version           print the version and exit\n"
                 + "  fux --help              print this message and exit\n"
                 + "\n"
@@ -926,6 +934,7 @@ namespace Fux
                 + "--validate exits 1 if the document has validation errors, 3 if a schema it\n"
                 + "declares could not be fetched or was not a schema — so nothing checked it —\n"
                 + "and 0 only when the document was validated and found clean.\n"
+                + "--snippets exits 1 if any snippet file has a problem, which it names.\n"
                 + "\n"
                 + "Before overwriting a file, fux copies its previous contents next to it as\n"
                 + "<name>.<YYYYMMDD-HHMMSS>.bak. A save that changes nothing writes no backup,\n"
@@ -1084,6 +1093,7 @@ namespace Fux
         // modal where it has no reference to them.
         internal const string SnippetListId = "fux-snippet-list";
         internal const string SnippetPosId = "fux-snippet-pos";
+        internal const string SnippetProblemId = "fux-snippet-problem";
 
         // Session memory. Inserting the same block many times running is the normal case when
         // marking up a document — twelve verse-lines is twelve of these — so the panel reopens
@@ -1105,7 +1115,8 @@ namespace Fux
             {
                 // Nothing usable: say where the file goes rather than opening an empty list.
                 ModalQuery(ui, "Snippets",
-                    set.Problem ?? "No snippets are defined.\n\nPut them in " + Snippets.ConfigPath(),
+                    set.Problem ?? "No snippets are defined.\n\nPut them in " + Snippets.ConfigPath()
+                        + ",\nor a library in " + Snippets.LibraryDirs()[0],
                     "OK");
                 return;
             }
@@ -1125,9 +1136,17 @@ namespace Fux
             var names = new ObservableCollection<string>();
             foreach (var r in rows) names.Add(r.Text);
 
+            // One row per file that did not load cleanly, under the list — the readme's
+            // "reported under the group". Lost when the snippets moved out of the Insert
+            // dialog (d2029e6), which only reported a problem when nothing loaded at all; with
+            // libraries a broken one beside a good one is the ordinary case, so it is back (#41).
+            // Flattened to one line each: the row count is what the layout reserves.
+            var problems = new List<string>();
+            foreach (var p in set.Problems) problems.Add(p.Replace("\r", "").Replace('\n', ' '));
+
             var list = new ListView
             {
-                X = 1, Y = 2, Width = Dim.Fill(1), Height = Dim.Fill(2),
+                X = 1, Y = 2, Width = Dim.Fill(1), Height = Dim.Fill(2 + problems.Count),
                 Id = SnippetListId,
             };
             list.SetSource(names);
@@ -1180,10 +1199,11 @@ namespace Fux
             // guessing that is exactly how the first attempt at this ended up showing two
             // snippets out of nineteen. Ask for what the terminal has and let the list scroll.
             int screenH = ui.Top.Viewport.Height;
-            int wanted = names.Count + SnippetPanelChrome;
+            int wanted = names.Count + problems.Count + SnippetPanelChrome;
             int height = Math.Max(10, Math.Min(wanted, Math.Max(10, screenH - 4)));
             int width = 0;
             foreach (var name in names) width = Math.Max(width, name.Length);
+            foreach (var p in problems) width = Math.Max(width, p.Length);
             width = Math.Max(44, Math.Min(width + 8, Math.Max(44, ui.Top.Viewport.Width - 6)));
 
             var d = new Dialog
@@ -1197,6 +1217,28 @@ namespace Fux
             {
                 d.HotKeySpecifier = NoHotKey; // the title carries a node name — see NoHotKey
                 d.Add(posSel, list);
+                if (problems.Count > 0)
+                {
+                    var note = new Label
+                    {
+                        X = 1, Y = Pos.Bottom(list), Width = Dim.Fill(1), Height = problems.Count,
+                        Text = string.Join("\n", problems),
+                        Id = SnippetProblemId,
+                    };
+                    note.HotKeySpecifier = NoHotKey; // file names and paths
+                    // Clipped at the panel's edge rather than wrapped: a Label wraps a long line
+                    // onto the next row, so one long XmlException message pushed the next
+                    // file's problem out of the rows reserved for it (drilled). Each line leads
+                    // with its file, and `fux --snippets` prints the whole message. Not cut to
+                    // a computed width with an ellipsis: that was tried, and the arithmetic
+                    // missed the dialog's shadow column — the trap SnippetPanelChrome records.
+                    note.TextFormatter.WordWrap = false;
+                    note.TextFormatter.MultiLine = true; // wrap off also turns the \n's off
+                    // The error pane's warning colour: a skipped snippet is a warning — the
+                    // rest loaded — and Error red would say otherwise.
+                    note.SetScheme(new Scheme { Normal = Theme.WarningRow });
+                    d.Add(note);
+                }
                 d.AddButton(new Button { Text = "Cancel" }); // Result 0
                 d.AddButton(new Button { Text = "OK" });     // Result 1; last added = default (Enter)
 

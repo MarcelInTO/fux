@@ -1728,6 +1728,10 @@ namespace Fux
             // ConfigPath rather than Combine(ConfigDir(), FileName): it is the same value,
             // null-guarded, and computed in one place instead of two that can drift.
             var cfgPath = Snippets.ConfigPath();
+            // Libraries (#41) are read from beside it. A run that died inside the library checks
+            // leaves its files here, and every count below would then be off by them.
+            var libDir = System.IO.Path.Combine(Snippets.ConfigDir(), Snippets.LibraryDirName);
+            if (System.IO.Directory.Exists(libDir)) System.IO.Directory.Delete(libDir, true);
             {
                 // No file at all: the feature is invisible, and says nothing.
                 if (System.IO.File.Exists(cfgPath)) System.IO.File.Delete(cfgPath);
@@ -2064,6 +2068,21 @@ namespace Fux
                 Check(insert != null && insert.Contains("Name (element/attribute/PI):")
                       && insert.Contains(Program.PosLabels[0]),
                     "...and is the Insert dialog, with the shared position words");
+
+                // --- Libraries (#41). A package ships its snippets as a file of their own in a
+                // snippets.d directory, because it has nowhere else to put them: the user's
+                // snippets.xml is theirs, and Homebrew cannot write under ~ at all.
+                try
+                {
+                    DrillLibraries(app, ui, cfgPath, libDir);
+                }
+                finally
+                {
+                    // Every check after this one reads the config dir, and none of them expects
+                    // a library in it.
+                    if (System.IO.Directory.Exists(libDir)) System.IO.Directory.Delete(libDir, true);
+                    Environment.SetEnvironmentVariable(Snippets.ConfigDirVar, cfgDir);
+                }
 
                 // Undo leaves the model dirty even when the content matches, and §15's ^Q has
                 // no timeout armed to answer a prompt — it would hang the run, not fail it.
@@ -2476,6 +2495,210 @@ namespace Fux
         // How many rows on screen draw a given label. Catches the opposite failure: a node that
         // landed inside a collapsed container is branched correctly but drawn nowhere, so it
         // reads 0. TreeView<T> exposes no enumeration of its branches, hence counting pixels.
+        /// <summary>
+        /// §14b's library checks (#41). The caller deletes <paramref name="libDir"/> and restores
+        /// FUX_CONFIG_DIR afterwards, whatever happens in here.
+        /// </summary>
+        private static void DrillLibraries(Terminal.Gui.App.IApplication app, Program.Ui ui,
+                                           string cfgPath, string libDir)
+        {
+            System.IO.Directory.CreateDirectory(libDir);
+            string Lib(string name) => System.IO.Path.Combine(libDir, name);
+            string Names(SnippetSet s) => string.Join("|", System.Linq.Enumerable.Select(s.Blocks, b => b.Name));
+
+            // (a) A library with no snippets.xml beside it — the state a fresh install of a
+            // package leaves a user in. The dotfile is an editor's lock file, which is not
+            // a library: *.xml as a glob does not match it either.
+            if (System.IO.File.Exists(cfgPath)) System.IO.File.Delete(cfgPath);
+            System.IO.File.WriteAllText(Lib("a-lib.xml"), LibConfig("LibA1", "LibA2"));
+            System.IO.File.WriteAllText(Lib(".#a-lib.xml"), LibConfig("Hidden"));
+            var only = Snippets.Load();
+            Check(!only.Missing && only.Problem == null && Names(only) == "LibA1|LibA2",
+                $"a library loads with no snippets.xml beside it (got '{Names(only)}', problem '{only.Problem}')");
+
+            // (b) Beside the user's own file, which comes first.
+            System.IO.File.WriteAllText(cfgPath, GoodConfig);
+            var beside = Snippets.Load();
+            Check(Names(beside) == "Footnote|Sidebar|Prefixed|LibA1|LibA2",
+                $"the user's own snippets come first, then the library (got '{Names(beside)}')");
+
+            // (c) Two libraries, in file-name order. Written in the reverse of that order, and
+            // named so that case decides it: "B-lib" sorts before "a-lib" ordinally.
+            System.IO.File.WriteAllText(Lib("B-lib.xml"), LibConfig("LibB1"));
+            var two = Snippets.Load();
+            Check(Names(two) == "Footnote|Sidebar|Prefixed|LibA1|LibA2|LibB1",
+                $"two libraries load in file-name order, case ignored (got '{Names(two)}')");
+            // The same property with no file system in the way. Enumeration order is the file
+            // system's to choose, and it may well happen to be sorted already — in which case
+            // the check above would pass with the sort deleted. This one cannot.
+            var sep = System.IO.Path.DirectorySeparatorChar;
+            var ordered = Snippets.InFileNameOrder(new[] { $"{sep}x{sep}c.xml", $"{sep}y{sep}B.xml", $"{sep}x{sep}a.xml" });
+            Check(string.Join(",", ordered) == $"{sep}x{sep}a.xml,{sep}y{sep}B.xml,{sep}x{sep}c.xml",
+                $"libraries sort by file name, not by directory or case (got {string.Join(",", ordered)})");
+            // Both libraries call their section "Lib". They are still two groups: without the
+            // second heading, LibB1 would read as one more of the first library's snippets.
+            Check(RowText(Snippets.Rows(two.Blocks)) == "Footnote|Sidebar|Prefixed|Lib|  LibA1|  LibA2|Lib|  LibB1",
+                $"each library heads its own sections (got '{RowText(Snippets.Rows(two.Blocks))}')");
+
+            // (d) A broken library beside good ones. Named to sort FIRST, so a failure that
+            // stopped the loop would take every library after it down too.
+            System.IO.File.WriteAllText(Lib("0-broken.xml"), "<snippets><snippet name='x'></snippets>");
+            var withBad = Snippets.Load();
+            Check(Names(withBad) == "Footnote|Sidebar|Prefixed|LibA1|LibA2|LibB1",
+                $"a library that will not parse costs only itself (got '{Names(withBad)}')");
+            var badLabel = System.IO.Path.Combine(Snippets.LibraryDirName, "0-broken.xml") + ":";
+            Check(withBad.Problems.Count == 1 && withBad.Problems[0].StartsWith(badLabel, StringComparison.Ordinal),
+                $"...and is reported, named by its file ('{withBad.Problem}')");
+
+            // ...and the panel says so. It did not for any file, before this: from d2029e6 on,
+            // the panel showed a problem only when NOTHING loaded, so a snippets.xml with one bad
+            // snippet among good ones was reported nowhere. The user's partly broken file goes
+            // in too, so both lines are on screen and the first is that regression.
+            //
+            // THREE problem lines, not two. The list reserves rows for them; with that
+            // reservation removed, two lines still fit, exactly, in the two rows the list
+            // always holds back — so a two-line fixture stayed green under that mutation. The
+            // third is a library with the wrong root, which is the other way a file fails.
+            System.IO.File.WriteAllText(cfgPath, MixedConfig);
+            System.IO.File.WriteAllText(Lib("1-wrongroot.xml"), "<library><snippet name='x'><x/></snippet></library>");
+            string row0 = null, row1 = null, row2 = null;
+            int listRows = -1, listCount = -1, noteBottom = -1, roomBottom = -1, listBottom = -1, noteTop = -1;
+            var noteAttr = default(Terminal.Gui.Drawing.Attribute?);
+            bool opened = RunSnippetPanel(app, ui, () =>
+            {
+                var top = app.TopRunnable as View;
+                var list = FindById(top, Program.SnippetListId) as ListView;
+                var note = FindById(top, Program.SnippetProblemId);
+                if (list == null || note == null) return;
+                app.LayoutAndDraw(true);
+                listRows = list.Viewport.Height;
+                listCount = list.Source?.Count ?? -1;
+                // The label's own rows, not a search of the screen: the oracle is that this
+                // view shows these lines, where the user will see them.
+                var at = note.FrameToScreen();
+                row0 = ScreenRow(app, at.Y);
+                row1 = ScreenRow(app, at.Y + 1);
+                row2 = ScreenRow(app, at.Y + 2);
+                noteAttr = app.Driver.GetOutputBuffer().Contents[at.Y, at.X].Attribute;
+                // Where the label may end: inside the dialog, and above any button that sits
+                // in the same content area. A label that runs past either is clipped or drawn
+                // over the buttons — on screen, in a way a row read might not notice.
+                noteTop = note.Frame.Y;
+                noteBottom = note.Frame.Bottom;
+                listBottom = list.Frame.Bottom;
+                roomBottom = note.SuperView?.Viewport.Height ?? -1;
+                foreach (var v in note.SuperView?.SubViews ?? new List<View>())
+                    if (v is Button b) roomBottom = Math.Min(roomBottom, b.Frame.Y);
+            });
+            Check(opened && row0 != null && row0.Contains("snippets.xml: skipped 2"),
+                $"the panel reports the user's skipped snippets beside the ones that loaded [{row0?.Trim()}] [{_lastDialogDiag}]");
+            // Its message is longer than the panel is wide, and must not wrap into the row the
+            // next problem needs — which is what the check after this caught.
+            Check(row1 != null && row1.Contains(badLabel),
+                $"...and the broken library, on the next row [{row1?.Trim()}]");
+            Check(row2 != null && row2.Contains(System.IO.Path.Combine(Snippets.LibraryDirName, "1-wrongroot.xml") + ": expected a <snippets> root"),
+                $"...and the one with the wrong root, on the row after [{row2?.Trim()}]");
+            Check(noteTop >= listBottom && noteBottom > 0 && noteBottom <= roomBottom,
+                $"...all of them below the list and inside the panel (list ends {listBottom}, problems {noteTop}-{noteBottom}, room to {roomBottom})");
+            Check(noteAttr?.Foreground == Theme.WarningRow.Foreground,
+                $"...in the warning colour (got {noteAttr?.Foreground})");
+            Check(listCount > 0 && listRows >= listCount,
+                $"...with the list still shown whole above them ({listRows} rows for {listCount})");
+
+            // (e) The same name in two places loads once, and the earlier directory wins: a copy
+            // in the config dir overrides a package's library. Two scratch directories passed
+            // straight in, since the install prefix is not somewhere a test can write.
+            var tmp = System.IO.Path.GetTempPath();
+            var first = System.IO.Path.Combine(tmp, "fux-drill-lib-first");
+            var second = System.IO.Path.Combine(tmp, "fux-drill-lib-second");
+            try
+            {
+                foreach (var d in new[] { first, second })
+                {
+                    if (System.IO.Directory.Exists(d)) System.IO.Directory.Delete(d, true);
+                    System.IO.Directory.CreateDirectory(d);
+                }
+                System.IO.File.WriteAllText(System.IO.Path.Combine(first, "same.xml"), LibConfig("Mine"));
+                System.IO.File.WriteAllText(System.IO.Path.Combine(second, "same.xml"), LibConfig("Theirs"));
+                System.IO.File.WriteAllText(System.IO.Path.Combine(second, "other.xml"), LibConfig("Other"));
+                var shadow = Snippets.LoadAll(null, new[] { first, second });
+                Check(Names(shadow) == "Other|Mine",
+                    $"a library of the same name in an earlier directory replaces it (got '{Names(shadow)}')");
+                var report = Snippets.Report(null, new[] { first, second }, shadow);
+                Check(report.Contains(System.IO.Path.Combine(second, "same.xml") + ": not read; "
+                                      + System.IO.Path.Combine(first, "same.xml")),
+                    "...and --snippets says which file it was not read for");
+            }
+            finally
+            {
+                foreach (var d in new[] { first, second })
+                    if (System.IO.Directory.Exists(d)) System.IO.Directory.Delete(d, true);
+            }
+
+            // (f) Where the install prefix is, from where the executable is. Under Homebrew
+            // the path is the RESOLVED one, inside the keg (measured, see InstallPrefix), so
+            // the rule that matters is the Cellar one; the CI step that runs the published
+            // binary through a symlinked Cellar layout is the end-to-end half of this.
+            var root = sep.ToString();
+            var cellarBin = System.IO.Path.Combine(root, "opt", "homebrew", "Cellar", "fux", "0.7.0", "bin") + sep;
+            Check(Snippets.InstallPrefix(cellarBin) == System.IO.Path.Combine(root, "opt", "homebrew"),
+                $"under Homebrew the install prefix is what comes before /Cellar/ (got {Snippets.InstallPrefix(cellarBin)})");
+            var plainBin = System.IO.Path.Combine(root, "usr", "local", "bin");
+            Check(Snippets.InstallPrefix(plainBin) == System.IO.Path.Combine(root, "usr", "local"),
+                $"...and anywhere else it is the executable's parent directory (got {Snippets.InstallPrefix(plainBin)})");
+
+            // (g) FUX_CONFIG_DIR shuts out everything else, so a drill or a bug report gives
+            // the same answer on every machine. The install-prefix library is planted through
+            // $HOMEBREW_PREFIX, the one install location a test can move — and the control
+            // below proves the plant WOULD be read with the variable unset, so the exclusion
+            // cannot pass merely because the fixture was invisible.
+            var brewPrefix = System.IO.Path.Combine(tmp, "fux-drill-brew");
+            var brewLib = Snippets.ShareDir(brewPrefix);
+            var xdg = System.IO.Path.Combine(tmp, "fux-drill-xdg");
+            var saved = new Dictionary<string, string>();
+            foreach (var v in new[] { Snippets.ConfigDirVar, "HOMEBREW_PREFIX", "XDG_CONFIG_HOME", "APPDATA" })
+                saved[v] = Environment.GetEnvironmentVariable(v);
+            try
+            {
+                System.IO.Directory.CreateDirectory(brewLib);
+                System.IO.File.WriteAllText(System.IO.Path.Combine(brewLib, "brewlib.xml"), LibConfig("FromBrew"));
+                Environment.SetEnvironmentVariable("HOMEBREW_PREFIX", brewPrefix);
+
+                var pinned = Snippets.LibraryDirs();
+                Check(pinned.Count == 1 && pinned[0] == libDir,
+                    $"with FUX_CONFIG_DIR set, its own snippets.d is the only library directory (got {string.Join(", ", pinned)})");
+                Check(!Names(Snippets.Load()).Contains("FromBrew"),
+                    "...so a library under the install prefix is not read");
+
+                // The control: the same plant, with the config dir moved to a scratch one rather
+                // than left on the real user's (XDG on Unix, APPDATA on Windows).
+                Environment.SetEnvironmentVariable(Snippets.ConfigDirVar, null);
+                Environment.SetEnvironmentVariable("XDG_CONFIG_HOME", xdg);
+                Environment.SetEnvironmentVariable("APPDATA", xdg);
+                var open = Snippets.LibraryDirs();
+                Check(open.Count > 0 && open[0] == System.IO.Path.Combine(xdg, "fux", Snippets.LibraryDirName),
+                    $"with it unset, the config dir's snippets.d comes first (got {string.Join(", ", open)})");
+                Check(open.Contains(Snippets.ShareDir(Snippets.InstallPrefix(AppContext.BaseDirectory))),
+                    "...then the install prefix's");
+                Check(open.Contains(brewLib) && Names(Snippets.Load()).Contains("FromBrew"),
+                    "...and $HOMEBREW_PREFIX's, whose library is then read (the control)");
+            }
+            finally
+            {
+                foreach (var kv in saved) Environment.SetEnvironmentVariable(kv.Key, kv.Value);
+                if (System.IO.Directory.Exists(brewPrefix)) System.IO.Directory.Delete(brewPrefix, true);
+            }
+        }
+
+        /// <summary>A library with one section, "Lib", holding a snippet per name.</summary>
+        private static string LibConfig(params string[] names)
+        {
+            var sb = new System.Text.StringBuilder("<snippets>\n  <section name=\"Lib\">\n");
+            foreach (var n in names)
+                sb.Append($"    <snippet name=\"{n}\"><{n.ToLowerInvariant()}/></snippet>\n");
+            return sb.Append("  </section>\n</snippets>").ToString();
+        }
+
         // Fixtures for the named-block drill. Written to the scratch config directory rather
         // than shipped as files: the config path is what is under test, so the test has to put
         // the file there itself.

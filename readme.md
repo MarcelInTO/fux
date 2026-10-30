@@ -60,6 +60,7 @@ fux document.xml           # open the editor
 fux --no-backup doc.xml    # edit without keeping backups
 fux --dump document.xml    # headless structure dump
 fux --validate doc.xml     # headless XSD validation (1 = errors, 3 = no schema)
+fux --snippets             # where snippets are read from, and what loaded
 fux --help                 # usage summary
 fux --version              # version only
 ```
@@ -186,7 +187,8 @@ twelve verse-lines bearable. Picking one inserts the element, its attributes and
 everything under it as a single undoable edit.
 
 The file is `~/.config/fux/snippets.xml` (`$XDG_CONFIG_HOME/fux/snippets.xml` if that
-is set; `%APPDATA%\fux\snippets.xml` on Windows):
+is set; `%APPDATA%\fux\snippets.xml` on Windows), and a package can add a library
+beside it ([Snippet libraries](#snippet-libraries)):
 
 ```xml
 <snippets>
@@ -222,10 +224,54 @@ is set; `%APPDATA%\fux\snippets.xml` on Windows):
   the change on the next `^B`.
 - A prefix a block uses must be declared in the config, on `<snippets>` or on the
   block itself; the declaration travels with the block.
-- A snippet that cannot load is skipped and reported under the group, and the rest of
-  the file still loads. A config that will not parse at all never stops fux opening a
-  document.
-- With no config file, the dialog is exactly what it has always been — no extra group.
+- A snippet that cannot load is skipped and reported under the list, one line per
+  file, and the rest of the file still loads. A config that will not parse at all
+  never stops fux opening a document.
+- With no snippet file anywhere, `^B` says where to put one.
+
+### Snippet libraries
+
+A library is a file in the same format that sits beside your `snippets.xml` rather
+than in it, so a package can ship one without touching yours. fux reads every
+`*.xml` in a `snippets.d/` directory, looking in these places, in this order:
+
+| | macOS and Linux | Windows |
+|---|---|---|
+| your config | `~/.config/fux/snippets.d/` (`$XDG_CONFIG_HOME/fux/snippets.d/` if that is set) | `%APPDATA%\fux\snippets.d\` |
+| the prefix fux is installed in | `<prefix>/share/fux/snippets.d/` | `<prefix>\share\fux\snippets.d\` |
+| Homebrew's prefix | `$HOMEBREW_PREFIX/share/fux/snippets.d/`, when that is set | — |
+
+Under Homebrew the prefix is the part of fux's real path before `/Cellar/` —
+`/opt/homebrew` for `/opt/homebrew/Cellar/fux/0.7.0/bin/fux`. For any other install it
+is the directory above the one `fux` is in: `/usr/local` for `/usr/local/bin/fux`.
+
+Where a package puts its library:
+
+- **Homebrew:** install it in the formula's keg as `share/fux/snippets.d/<name>.xml`.
+  Brew links it into `$(brew --prefix)/share/fux/snippets.d/`, which is where fux looks.
+  A formula cannot write under `~`, so the config directory is not an option there.
+- **Scoop:** copy it to `%APPDATA%\fux\snippets.d\<name>.xml` in `post_install`, and
+  remove it in `pre_uninstall`.
+- **A plain install** — `make install`, or a release archive unpacked into
+  `<prefix>/bin`: `<prefix>/share/fux/snippets.d/<name>.xml`.
+
+How they load:
+
+- Your own `snippets.xml` comes first in the panel, then each library in file-name
+  order, with case ignored, whichever directory it is in. A library's sections are its
+  own: two libraries that both have a section called "Blocks" get a heading each.
+- Two files with the same name load once, and the earlier place in the table wins. To
+  change a package's library, copy it into your own `snippets.d/` and edit the copy. To
+  switch one off, put an empty `<snippets/>` there under the same name.
+- A library that will not parse is skipped and reported under the list, named
+  `snippets.d/<name>`, and the others still load.
+- `fux --snippets` prints where fux is running from, every place it looks, and what
+  each file it found contributed, with problems in full. It exits 1 if any file has a
+  problem. Start here when a library does not show up.
+- `$FUX_CONFIG_DIR`, if set, replaces the config directory and is the **only** place
+  read: its `snippets.xml` and its `snippets.d/`, and no prefix. A run then does not
+  depend on what happens to be installed, which is what the drill and a reproducible
+  bug report need.
 
 ## Development
 
